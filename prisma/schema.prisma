@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Trade {
+  id               String   @id @default(cuid())
+  ticker           String
+  optionType       String   // "call" | "put"
+  strike           Float
+  expiry           String   // YYYY-MM-DD
+  action           String   // "buy" | "sell"
+  quantity         Int
+  pricePerContract Float
+  tradeDate        String   // YYYY-MM-DD
+  notes            String?
+  fees             Float?   // optional fees (e.g. commission) for this trade
+  source           String   @default("manual") // "manual" | "csv_import"
+  importId         String?  // batch id for CSV imports
+  createdAt        DateTime @default(now())
+}
