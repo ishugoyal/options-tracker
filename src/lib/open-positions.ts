@@ -75,6 +75,8 @@ export interface TradeForClosed {
   action: string;
   quantity: number;
   pricePerContract: number;
+  /** Optional fees (commission) for this trade; subtracted from profit. */
+  fees?: number | null;
 }
 
 export interface TradeForClosedWithDate extends TradeForClosed {
@@ -96,12 +98,13 @@ export interface ClosedPositionWithDate extends ClosedPosition {
 
 /**
  * Closed position = same option (ticker, type, strike, expiry) with net quantity 0.
- * Profit = premium received from sells - premium paid for buys.
+ * Profit = premium received from sells - premium paid for buys - fees (earnings minus fees).
  */
 export function getClosedPositions(trades: TradeForClosed[]): ClosedPosition[] {
   const key = (t: TradeForClosed) => `${t.ticker}|${t.optionType}|${t.strike}|${t.expiry}`;
   const netQty = new Map<string, number>();
   const profit = new Map<string, number>();
+  const feesSum = new Map<string, number>();
 
   for (const t of trades) {
     const k = key(t);
@@ -110,6 +113,8 @@ export function getClosedPositions(trades: TradeForClosed[]): ClosedPosition[] {
     const premium = t.quantity * t.pricePerContract * 100;
     const pnl = t.action === "sell" ? premium : -premium;
     profit.set(k, (profit.get(k) ?? 0) + pnl);
+    const tradeFees = t.fees != null ? t.fees : 0;
+    feesSum.set(k, (feesSum.get(k) ?? 0) + tradeFees);
   }
 
   const positions: ClosedPosition[] = [];
@@ -123,7 +128,7 @@ export function getClosedPositions(trades: TradeForClosed[]): ClosedPosition[] {
 
   for (const [k, n] of netQty) {
     if (n !== 0) continue;
-    const p = profit.get(k) ?? 0;
+    const p = (profit.get(k) ?? 0) - (feesSum.get(k) ?? 0);
     const [ticker, optionType, strike, expiry] = k.split("|");
     positions.push({
       ticker,
@@ -140,12 +145,13 @@ export function getClosedPositions(trades: TradeForClosed[]): ClosedPosition[] {
 
 /**
  * Like getClosedPositions but also returns closedAt (tradeDate of last trade that closed the position).
- * Pass trades with tradeDate so P/L can be attributed to time periods.
+ * Profit = earnings (premium) minus fees for all trades in the position.
  */
 export function getClosedPositionsWithDates(trades: TradeForClosedWithDate[]): ClosedPositionWithDate[] {
   const key = (t: TradeForClosedWithDate) => `${t.ticker}|${t.optionType}|${t.strike}|${t.expiry}`;
   const netQty = new Map<string, number>();
   const profit = new Map<string, number>();
+  const feesSum = new Map<string, number>();
   const lastTradeDate = new Map<string, string>();
 
   for (const t of trades) {
@@ -155,6 +161,8 @@ export function getClosedPositionsWithDates(trades: TradeForClosedWithDate[]): C
     const premium = t.quantity * t.pricePerContract * 100;
     const pnl = t.action === "sell" ? premium : -premium;
     profit.set(k, (profit.get(k) ?? 0) + pnl);
+    const tradeFees = t.fees != null ? t.fees : 0;
+    feesSum.set(k, (feesSum.get(k) ?? 0) + tradeFees);
     lastTradeDate.set(k, t.tradeDate);
   }
 
@@ -169,7 +177,7 @@ export function getClosedPositionsWithDates(trades: TradeForClosedWithDate[]): C
   const positions: ClosedPositionWithDate[] = [];
   for (const [k, n] of netQty) {
     if (n !== 0) continue;
-    const p = profit.get(k) ?? 0;
+    const p = (profit.get(k) ?? 0) - (feesSum.get(k) ?? 0);
     const closedAt = lastTradeDate.get(k) ?? "";
     const [ticker, optionType, strike, expiry] = k.split("|");
     positions.push({

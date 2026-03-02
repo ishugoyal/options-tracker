@@ -20,6 +20,7 @@ export default async function ClosedPositionsPage() {
       action: t.action,
       quantity: t.quantity,
       pricePerContract: t.pricePerContract,
+      fees: t.fees,
     }))
   );
 
@@ -30,7 +31,7 @@ export default async function ClosedPositionsPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Closed positions</h1>
         <p className="mt-1 text-slate-400">
-          Options where you have fully closed the position (same number of buys and sells). Profit = premium received from sells minus premium paid for buys.
+          Options where you have fully closed the position (same number of buys and sells). P/L = earnings (premium) minus fees.
         </p>
       </div>
 
