@@ -39,6 +39,7 @@ export default async function HomePage() {
       action: t.action,
       quantity: t.quantity,
       pricePerContract: t.pricePerContract,
+      fees: t.fees,
     }))
   );
   const totalClosedProfit = closedPositions.reduce((sum, p) => sum + p.profit, 0);
@@ -69,8 +70,8 @@ export default async function HomePage() {
       />
 
       <div className="flex gap-4">
-        <Link href="/pl" className="rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-2 text-sm text-sky-400 hover:bg-slate-800">
-          P/L breakdown (by ticker, week, month, year) →
+        <Link href="/reports" className="rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-2 text-sm text-sky-400 hover:bg-slate-800">
+          Earnings →
         </Link>
       </div>
 
