@@ -24,6 +24,9 @@ export default function RootLayout({
               <Link href="/" className="text-slate-300 hover:text-white">
                 Dashboard
               </Link>
+              <Link href="/pl" className="text-slate-300 hover:text-white">
+                P/L
+              </Link>
               <Link href="/trades" className="text-slate-300 hover:text-white">
                 Trades
               </Link>

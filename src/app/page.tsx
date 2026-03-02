@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getOpenPositions, getClosedPositions } from "@/lib/open-positions";
 import { getActionLabels } from "@/lib/action-labels";
+import { toTrade } from "@/types/trade";
 import { SummaryCards } from "@/components/SummaryCards";
 import { TradeTable } from "@/components/TradeTable";
 import { OpenPositionsPreview } from "@/components/OpenPositionsPreview";
@@ -14,13 +15,12 @@ export default async function HomePage() {
     orderBy: { tradeDate: "desc" },
   });
 
-  const tradesForSummary = allTrades.slice(0, 50).map((t) => ({
-    ...t,
-    createdAt: t.createdAt.toISOString(),
-  }));
+  const tradesForSummary = allTrades.slice(0, 50).map(toTrade);
+
+  const tradesForPositions = allTrades.filter((t) => t.isOrphanClose !== true);
 
   const openPositions = getOpenPositions(
-    allTrades.map((t) => ({
+    tradesForPositions.map((t) => ({
       ticker: t.ticker,
       optionType: t.optionType,
       strike: t.strike,
@@ -31,7 +31,7 @@ export default async function HomePage() {
   );
 
   const closedPositions = getClosedPositions(
-    allTrades.map((t) => ({
+    tradesForPositions.map((t) => ({
       ticker: t.ticker,
       optionType: t.optionType,
       strike: t.strike,
@@ -65,8 +65,14 @@ export default async function HomePage() {
       <SummaryCards
         trades={tradesForSummary}
         totalRealizedPL={totalClosedProfit}
-        allTradesForFees={allTrades.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() }))}
+        allTradesForFees={allTrades.map(toTrade)}
       />
+
+      <div className="flex gap-4">
+        <Link href="/pl" className="rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-2 text-sm text-sky-400 hover:bg-slate-800">
+          P/L breakdown (by ticker, week, month, year) →
+        </Link>
+      </div>
 
       <div>
         <div className="mb-4 flex items-center justify-between">

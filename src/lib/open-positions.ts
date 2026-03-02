@@ -77,6 +77,10 @@ export interface TradeForClosed {
   pricePerContract: number;
 }
 
+export interface TradeForClosedWithDate extends TradeForClosed {
+  tradeDate: string; // YYYY-MM-DD
+}
+
 export interface ClosedPosition {
   ticker: string;
   optionType: "call" | "put";
@@ -84,6 +88,10 @@ export interface ClosedPosition {
   expiry: string;
   quantity: number;
   profit: number;
+}
+
+export interface ClosedPositionWithDate extends ClosedPosition {
+  closedAt: string; // YYYY-MM-DD — date when position was closed (last trade date for that option)
 }
 
 /**
@@ -128,4 +136,54 @@ export function getClosedPositions(trades: TradeForClosed[]): ClosedPosition[] {
   }
 
   return positions.sort((a, b) => a.ticker.localeCompare(b.ticker) || a.expiry.localeCompare(b.expiry));
+}
+
+/**
+ * Like getClosedPositions but also returns closedAt (tradeDate of last trade that closed the position).
+ * Pass trades with tradeDate so P/L can be attributed to time periods.
+ */
+export function getClosedPositionsWithDates(trades: TradeForClosedWithDate[]): ClosedPositionWithDate[] {
+  const key = (t: TradeForClosedWithDate) => `${t.ticker}|${t.optionType}|${t.strike}|${t.expiry}`;
+  const netQty = new Map<string, number>();
+  const profit = new Map<string, number>();
+  const lastTradeDate = new Map<string, string>();
+
+  for (const t of trades) {
+    const k = key(t);
+    const q = t.action === "buy" ? t.quantity : -t.quantity;
+    netQty.set(k, (netQty.get(k) ?? 0) + q);
+    const premium = t.quantity * t.pricePerContract * 100;
+    const pnl = t.action === "sell" ? premium : -premium;
+    profit.set(k, (profit.get(k) ?? 0) + pnl);
+    lastTradeDate.set(k, t.tradeDate);
+  }
+
+  const totalSells = new Map<string, number>();
+
+  for (const t of trades) {
+    const k = key(t);
+    if (netQty.get(k) !== 0) continue;
+    if (t.action === "sell") totalSells.set(k, (totalSells.get(k) ?? 0) + t.quantity);
+  }
+
+  const positions: ClosedPositionWithDate[] = [];
+  for (const [k, n] of netQty) {
+    if (n !== 0) continue;
+    const p = profit.get(k) ?? 0;
+    const closedAt = lastTradeDate.get(k) ?? "";
+    const [ticker, optionType, strike, expiry] = k.split("|");
+    positions.push({
+      ticker,
+      optionType: optionType as "call" | "put",
+      strike: Number(strike),
+      expiry,
+      quantity: totalSells.get(k) ?? 0,
+      profit: p,
+      closedAt,
+    });
+  }
+
+  return positions.sort(
+    (a, b) => (b.closedAt || "").localeCompare(a.closedAt || "") || a.ticker.localeCompare(b.ticker)
+  );
 }
