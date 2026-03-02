@@ -1,12 +1,17 @@
 import type { PrismaClient } from "@prisma/client";
 
+type PrismaTx = Omit<
+  PrismaClient,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+>;
+
 /**
  * After creating an opening trade, try to link one matching orphan close (same option, opposite action).
  * Only considers orphan closes whose tradeDate is on or after the open's tradeDate (close date >= open date).
  * Updates the orphan to closesTradeId = openTrade.id and isOrphanClose = false (FIFO by tradeDate).
  */
 export async function resolveMatchingOrphanClose(
-  prismaOrTx: PrismaClient | Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use">,
+  prismaOrTx: PrismaClient | PrismaTx,
   openTrade: {
     id: string;
     ticker: string;

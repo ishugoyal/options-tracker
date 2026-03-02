@@ -240,7 +240,7 @@ export function CsvImport() {
                         <label className="flex items-center gap-1 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={previewRows && selectedIndices.size === previewRows.length}
+                            checked={!!previewRows && selectedIndices.size === previewRows.length}
                             onChange={(e) => {
                               if (!previewRows) return;
                               if (e.target.checked) {
