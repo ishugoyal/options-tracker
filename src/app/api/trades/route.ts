@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
+import { resolveMatchingOrphanClose } from "@/lib/resolve-orphan-close";
 
 export async function GET() {
   try {
@@ -72,10 +73,12 @@ export async function POST(request: NextRequest) {
         importId: importId ?? null,
       },
     });
+    await resolveMatchingOrphanClose(prisma, trade);
     revalidatePath("/");
     revalidatePath("/trades");
     revalidatePath("/open-positions");
     revalidatePath("/closed-positions");
+    revalidatePath("/orphaned-closes");
     return NextResponse.json(trade);
   } catch (e) {
     console.error(e);

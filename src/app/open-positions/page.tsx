@@ -10,8 +10,10 @@ export default async function OpenPositionsPage() {
     orderBy: { tradeDate: "desc" },
   });
 
+  const tradesForPositions = trades.filter((t) => t.isOrphanClose !== true);
+
   const positions = getOpenPositions(
-    trades.map((t) => ({
+    tradesForPositions.map((t) => ({
       ticker: t.ticker,
       optionType: t.optionType,
       strike: t.strike,

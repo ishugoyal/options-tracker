@@ -49,7 +49,7 @@ export function TradeForm({ trade }: TradeFormProps) {
     setError(null);
     setSubmitting(true);
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         ticker: form.ticker.trim().toUpperCase(),
         optionType: form.optionType,
         strike: Number(form.strike),

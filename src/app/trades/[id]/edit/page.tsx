@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { toTrade } from "@/types/trade";
 import { TradeForm } from "@/components/TradeForm";
 
 export const dynamic = "force-dynamic";
@@ -14,10 +15,7 @@ export default async function EditTradePage({ params }: EditTradePageProps) {
   const trade = await prisma.trade.findUnique({ where: { id } });
   if (!trade) notFound();
 
-  const tradeForForm = {
-    ...trade,
-    createdAt: trade.createdAt.toISOString(),
-  };
+  const tradeForForm = toTrade(trade);
 
   return (
     <div className="space-y-6">

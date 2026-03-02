@@ -56,6 +56,7 @@ export async function PUT(
     revalidatePath("/trades");
     revalidatePath("/open-positions");
     revalidatePath("/closed-positions");
+    revalidatePath("/orphaned-closes");
     return NextResponse.json(trade);
   } catch (e) {
     console.error(e);
@@ -69,11 +70,17 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
+    // Orphan any closing trades that referenced this open trade
+    await prisma.trade.updateMany({
+      where: { closesTradeId: id },
+      data: { closesTradeId: null, isOrphanClose: true },
+    });
     await prisma.trade.delete({ where: { id } });
     revalidatePath("/");
     revalidatePath("/trades");
     revalidatePath("/open-positions");
     revalidatePath("/closed-positions");
+    revalidatePath("/orphaned-closes");
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error(e);

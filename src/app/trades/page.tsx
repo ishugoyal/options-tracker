@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getActionLabels } from "@/lib/action-labels";
+import { toTrade } from "@/types/trade";
 import { TradeTable } from "@/components/TradeTable";
 
 export const dynamic = "force-dynamic";
@@ -10,10 +11,7 @@ export default async function TradesPage() {
     orderBy: { tradeDate: "desc" },
   });
 
-  const tradesForDisplay = trades.map((t) => ({
-    ...t,
-    createdAt: t.createdAt.toISOString(),
-  }));
+  const tradesForDisplay = trades.map(toTrade);
 
   const actionLabels = getActionLabels(
     trades.map((t) => ({
@@ -61,6 +59,12 @@ export default async function TradesPage() {
             className="rounded border border-slate-600 px-4 py-2 text-slate-300 hover:bg-slate-800"
           >
             Closed positions
+          </Link>
+          <Link
+            href="/orphaned-closes"
+            className="rounded border border-slate-600 px-4 py-2 text-slate-300 hover:bg-slate-800"
+          >
+            Orphaned closes
           </Link>
         </div>
       </div>

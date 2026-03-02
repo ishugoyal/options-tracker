@@ -11,15 +11,17 @@ model Trade {
   id               String   @id @default(cuid())
   ticker           String
   optionType       String   // "call" | "put"
-  strike           Float
-  expiry           String   // YYYY-MM-DD
-  action           String   // "buy" | "sell"
-  quantity         Int
+  strike          Float
+  expiry          String   // YYYY-MM-DD
+  action          String   // "buy" | "sell"
+  quantity        Int
   pricePerContract Float
-  tradeDate        String   // YYYY-MM-DD
-  notes            String?
-  fees             Float?   // optional fees (e.g. commission) for this trade
-  source           String   @default("manual") // "manual" | "csv_import"
-  importId         String?  // batch id for CSV imports
-  createdAt        DateTime @default(now())
+  tradeDate       String   // YYYY-MM-DD
+  notes           String?
+  fees            Float?   // optional fees (e.g. commission) for this trade
+  source          String   @default("manual") // "manual" | "csv_import"
+  importId        String?  // batch id for CSV imports
+  closesTradeId   String?  // if this trade closes an opening trade, reference that trade's id
+  isOrphanClose   Boolean  @default(false) // closing trade with no matching open; exclude from position calc
+  createdAt       DateTime @default(now())
 }
