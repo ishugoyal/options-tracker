@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { parseCsvFile, normalizeRows, type NormalizedRow } from "@/lib/csv-import";
+import { parseCsvFile, normalizeRows, buildImportPreview, type NormalizedRow, type ImportPreviewRow } from "@/lib/csv-import";
 import { BROKER_PRESETS, type OurField } from "@/lib/broker-presets";
 
 const OUR_FIELDS: OurField[] = [
@@ -25,6 +25,8 @@ export function CsvImport() {
   const [brokerId, setBrokerId] = useState<string>(BROKER_PRESETS[0].id);
   const [customMap, setCustomMap] = useState<Record<OurField, string>>({} as Record<OurField, string>);
   const [preview, setPreview] = useState<NormalizedRow[] | null>(null);
+  const [previewRows, setPreviewRows] = useState<ImportPreviewRow[] | null>(null);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -41,6 +43,7 @@ export function CsvImport() {
       if (!f) return;
       setFile(f);
       setPreview(null);
+      setPreviewRows(null);
       setMessage(null);
       try {
         const { headers: h, rows: r } = await parseCsvFile(f);
@@ -62,6 +65,9 @@ export function CsvImport() {
     const { ok, errors } = normalizeRows(rows, presetForNormalize);
     setImportErrors(errors);
     setPreview(ok);
+    const built = ok.length > 0 ? buildImportPreview(ok) : null;
+    setPreviewRows(built);
+    setSelectedIndices(built ? new Set(built.map((_, i) => i)) : new Set());
     if (ok.length === 0 && errors.length > 0) {
       setMessage({ type: "err", text: `No valid rows. ${errors.slice(0, 3).join("; ")}` });
     } else if (ok.length > 0) {
@@ -69,8 +75,27 @@ export function CsvImport() {
     }
   }, [rows, preset, effectiveMap]);
 
+  /** Build the list of NormalizedRow to send to the API from selected preview row indices (order preserved for pairing). */
+  const getTradesToImport = useCallback((): NormalizedRow[] => {
+    if (!previewRows || selectedIndices.size === 0) return [];
+    const sorted = [...selectedIndices].sort((a, b) => a - b);
+    const out: NormalizedRow[] = [];
+    for (const i of sorted) {
+      const row = previewRows[i];
+      if (!row) continue;
+      if (row.kind === "pair") {
+        out.push(row.openRow);
+        out.push(row.closeRow);
+      } else {
+        out.push(row.row);
+      }
+    }
+    return out;
+  }, [previewRows, selectedIndices]);
+
   const handleImport = useCallback(async () => {
-    if (!preview || preview.length === 0) return;
+    const tradesToImport = getTradesToImport();
+    if (tradesToImport.length === 0) return;
     setSubmitting(true);
     setMessage(null);
     try {
@@ -78,14 +103,19 @@ export function CsvImport() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          trades: preview,
+          trades: tradesToImport,
           importId: `import-${Date.now()}`,
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Import failed");
-      setMessage({ type: "ok", text: `Imported ${data.imported ?? preview.length} trades.` });
+      if (!res.ok) {
+        const msg = [data.error, data.detail].filter(Boolean).join(" — ") || "Import failed";
+        throw new Error(msg);
+      }
+      setMessage({ type: "ok", text: `Imported ${data.imported ?? tradesToImport.length} trades.` });
       setPreview(null);
+      setPreviewRows(null);
+      setSelectedIndices(new Set());
       setFile(null);
       setRows([]);
       setHeaders([]);
@@ -95,9 +125,11 @@ export function CsvImport() {
     } finally {
       setSubmitting(false);
     }
-  }, [preview, router]);
+  }, [getTradesToImport, router]);
 
-  const hasMapping = Object.keys(effectiveMap).length > 0 && Object.values(effectiveMap).some(Boolean);
+  const hasMapping =
+    preset.id === "fidelity" ||
+    (Object.keys(effectiveMap).length > 0 && Object.values(effectiveMap).some(Boolean));
 
   return (
     <div className="space-y-6">
@@ -118,7 +150,6 @@ export function CsvImport() {
                 {p.name}
               </option>
             ))}
-            <option value="custom">Custom (map columns below)</option>
           </select>
         </div>
         <div>
@@ -136,6 +167,12 @@ export function CsvImport() {
       {headers.length > 0 && (
         <div className="rounded-lg border border-slate-700 bg-slate-800/30 p-6">
           <h2 className="mb-4 text-lg font-semibold text-white">2. Map columns (Fidelity/Robinhood presets TBD)</h2>
+          {preset.id === "fidelity" ? (
+            <p className="mb-4 text-slate-400 text-sm">
+              Fidelity format is auto-detected from your CSV (Run Date, Action, Symbol, Description, Price, Quantity, etc.). Option rows are parsed from Symbol (e.g. MSFT260327P365) and Action (YOU BOUGHT / YOU SOLD). Non-option rows are skipped. No column mapping needed.
+            </p>
+          ) : (
+            <>
           <p className="mb-4 text-slate-400 text-sm">
             Map each app field to a CSV column. When you have sample exports, we can add exact Fidelity and Robinhood presets.
           </p>
@@ -167,6 +204,8 @@ export function CsvImport() {
               Map each app field to your CSV column. When you have sample Fidelity or Robinhood exports, we can add one-click presets.
             </p>
           )}
+            </>
+          )}
         </div>
       )}
 
@@ -190,45 +229,145 @@ export function CsvImport() {
           )}
           {preview && preview.length > 0 && (
             <>
-              <p className="mt-4 text-slate-400">Rows to import: {preview.length}</p>
-              <div className="mt-2 max-h-60 overflow-auto rounded border border-slate-700">
+              <p className="mt-4 text-slate-400">
+                {previewRows?.length ?? 0} preview row(s) · {selectedIndices.size} selected → {getTradesToImport().length} trade(s) to import
+              </p>
+              <div className="mt-2 max-h-80 overflow-auto rounded border border-slate-700">
                 <table className="w-full text-left text-xs">
                   <thead className="sticky top-0 bg-slate-800 text-slate-400">
                     <tr>
-                      <th className="px-2 py-1">ticker</th>
-                      <th className="px-2 py-1">type</th>
-                      <th className="px-2 py-1">strike</th>
-                      <th className="px-2 py-1">expiry</th>
-                      <th className="px-2 py-1">action</th>
-                      <th className="px-2 py-1">qty</th>
-                      <th className="px-2 py-1">price</th>
-                      <th className="px-2 py-1">date</th>
+                      <th className="px-2 py-1 w-8">
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={previewRows && selectedIndices.size === previewRows.length}
+                            onChange={(e) => {
+                              if (!previewRows) return;
+                              if (e.target.checked) {
+                                setSelectedIndices(new Set(previewRows.map((_, i) => i)));
+                              } else {
+                                setSelectedIndices(new Set());
+                              }
+                            }}
+                            className="rounded border-slate-500"
+                          />
+                          <span className="text-slate-400 text-xs">All</span>
+                        </label>
+                      </th>
+                      <th className="px-2 py-1">Status</th>
+                      <th className="px-2 py-1">Ticker</th>
+                      <th className="px-2 py-1">Type</th>
+                      <th className="px-2 py-1">Strike</th>
+                      <th className="px-2 py-1">Expiry</th>
+                      <th className="px-2 py-1">Open date</th>
+                      <th className="px-2 py-1">Close date</th>
+                      <th className="px-2 py-1">Qty</th>
+                      <th className="px-2 py-1">P/L</th>
+                      <th className="px-2 py-1">Note</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700">
-                    {preview.slice(0, 20).map((r, i) => (
-                      <tr key={i}>
-                        <td className="px-2 py-1">{r.ticker}</td>
-                        <td className="px-2 py-1">{r.optionType}</td>
-                        <td className="px-2 py-1">{r.strike}</td>
-                        <td className="px-2 py-1">{r.expiry}</td>
-                        <td className="px-2 py-1">{r.action}</td>
-                        <td className="px-2 py-1">{r.quantity}</td>
-                        <td className="px-2 py-1">{r.pricePerContract}</td>
-                        <td className="px-2 py-1">{r.tradeDate}</td>
-                      </tr>
-                    ))}
+                    {(previewRows ?? []).map((row, i) => {
+                      const selected = selectedIndices.has(i);
+                      const toggleSelect = () => {
+                        setSelectedIndices((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(i)) next.delete(i);
+                          else next.add(i);
+                          return next;
+                        });
+                      };
+                      if (row.kind === "pair") {
+                        return (
+                          <tr key={i} className="bg-slate-800/50">
+                            <td className="px-2 py-1">
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={toggleSelect}
+                                className="rounded border-slate-500"
+                              />
+                            </td>
+                            <td className="px-2 py-1">
+                              <span className="rounded bg-green-900/40 px-1.5 py-0.5 text-green-300">Pair</span>
+                            </td>
+                            <td className="px-2 py-1 font-medium text-white">{row.ticker}</td>
+                            <td className="px-2 py-1 capitalize text-slate-300">{row.optionType}</td>
+                            <td className="px-2 py-1 text-slate-300">{row.strike}</td>
+                            <td className="px-2 py-1 text-slate-300">{row.expiry}</td>
+                            <td className="px-2 py-1 text-slate-300">{row.openDate}</td>
+                            <td className="px-2 py-1 text-slate-300">{row.closeDate}</td>
+                            <td className="px-2 py-1 text-slate-300">{row.quantity}</td>
+                            <td className={`px-2 py-1 font-medium ${row.profit >= 0 ? "text-green-400" : "text-red-400"}`}>
+                              {row.profit >= 0 ? "+" : ""}${row.profit.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-2 py-1 text-slate-500">—</td>
+                          </tr>
+                        );
+                      }
+                      if (row.kind === "open_only") {
+                        return (
+                          <tr key={i}>
+                            <td className="px-2 py-1">
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={toggleSelect}
+                                className="rounded border-slate-500"
+                              />
+                            </td>
+                            <td className="px-2 py-1">
+                              <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-amber-300">Open</span>
+                            </td>
+                            <td className="px-2 py-1 font-medium text-white">{row.ticker}</td>
+                            <td className="px-2 py-1 capitalize text-slate-300">{row.optionType}</td>
+                            <td className="px-2 py-1 text-slate-300">{row.strike}</td>
+                            <td className="px-2 py-1 text-slate-300">{row.expiry}</td>
+                            <td className="px-2 py-1 text-slate-300">{row.tradeDate}</td>
+                            <td className="px-2 py-1 text-slate-500">—</td>
+                            <td className="px-2 py-1 text-slate-300">{row.quantity}</td>
+                            <td className="px-2 py-1 text-slate-500">—</td>
+                            <td className="px-2 py-1 text-amber-400/90 max-w-[140px]">Not closed yet</td>
+                          </tr>
+                        );
+                      }
+                      return (
+                        <tr key={i} className="bg-slate-800/30">
+                          <td className="px-2 py-1">
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={toggleSelect}
+                              className="rounded border-slate-500"
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <span className="rounded bg-red-900/40 px-1.5 py-0.5 text-red-300">Orphan close</span>
+                          </td>
+                          <td className="px-2 py-1 font-medium text-white">{row.ticker}</td>
+                          <td className="px-2 py-1 capitalize text-slate-300">{row.optionType}</td>
+                          <td className="px-2 py-1 text-slate-300">{row.strike}</td>
+                          <td className="px-2 py-1 text-slate-300">{row.expiry}</td>
+                          <td className="px-2 py-1 text-slate-500">—</td>
+                          <td className="px-2 py-1 text-slate-300">{row.tradeDate}</td>
+                          <td className="px-2 py-1 text-slate-300">{row.quantity}</td>
+                          <td className="px-2 py-1 text-slate-500">—</td>
+                          <td className="px-2 py-1 text-red-400/90 max-w-[180px]">
+                            No matching open in file. Opening may already be in app or missing — verify after import.
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-              {preview.length > 20 && <p className="text-slate-500 text-sm">… and {preview.length - 20} more</p>}
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={submitting}
+                disabled={submitting || selectedIndices.size === 0}
                 className="mt-4 rounded bg-sky-600 px-4 py-2 font-medium text-white hover:bg-sky-500 disabled:opacity-50"
               >
-                {submitting ? "Importing…" : `Import ${preview.length} trades`}
+                {submitting ? "Importing…" : `Import ${getTradesToImport().length} selected trade(s)`}
               </button>
             </>
           )}
