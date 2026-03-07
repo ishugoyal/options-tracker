@@ -77,6 +77,8 @@ export interface TradeForClosed {
   pricePerContract: number;
   /** Optional fees (commission) for this trade; subtracted from profit. */
   fees?: number | null;
+  /** Optional trade date (YYYY-MM-DD) for FIFO ordering; required for correct round-trip matching. */
+  tradeDate?: string;
 }
 
 export interface TradeForClosedWithDate extends TradeForClosed {
@@ -93,105 +95,134 @@ export interface ClosedPosition {
 }
 
 export interface ClosedPositionWithDate extends ClosedPosition {
-  closedAt: string; // YYYY-MM-DD — date when position was closed (last trade date for that option)
+  closedAt: string; // YYYY-MM-DD — date when position was closed
+}
+
+/** One open lot (FIFO queue entry). */
+interface OpenLot {
+  quantity: number;
+  pricePerContract: number;
+  tradeDate: string;
+  fees: number; // remaining fees for this lot (reduced when partially closed)
 }
 
 /**
- * Closed position = same option (ticker, type, strike, expiry) with net quantity 0.
- * Profit = premium received from sells - premium paid for buys - fees (earnings minus fees).
+ * FIFO matching: for each option, match opens with closes in chronological order.
+ * Emits one closed position per round trip (one open + one close).
+ */
+function getClosedPositionsFIFO<T extends TradeForClosed>(
+  trades: T[],
+  withDate: boolean
+): (ClosedPosition | ClosedPositionWithDate)[] {
+  const key = (t: TradeForClosed) => `${t.ticker}|${t.optionType}|${t.strike}|${t.expiry}`;
+  const sorted = [...trades].sort((a, b) => {
+    const kA = key(a);
+    const kB = key(b);
+    if (kA !== kB) return kA.localeCompare(kB);
+    const dA = "tradeDate" in a ? (a.tradeDate ?? "") : "";
+    const dB = "tradeDate" in b ? (b.tradeDate ?? "") : "";
+    return dA.localeCompare(dB);
+  });
+
+  const positions: (ClosedPosition | ClosedPositionWithDate)[] = [];
+
+  let i = 0;
+  while (i < sorted.length) {
+    const t = sorted[i];
+    const k = key(t);
+    const [ticker, optionType, strike, expiry] = k.split("|");
+    const shortLots: OpenLot[] = [];
+    const longLots: OpenLot[] = [];
+
+    while (i < sorted.length && key(sorted[i]) === k) {
+      const cur = sorted[i];
+      const qty = cur.quantity;
+      const price = cur.pricePerContract;
+      const date = "tradeDate" in cur ? (cur.tradeDate ?? "") : "";
+      const fees = cur.fees != null ? cur.fees : 0;
+      const premium = qty * price * 100;
+
+      if (cur.action === "buy") {
+        let remaining = qty;
+        while (remaining > 0 && shortLots.length > 0) {
+          const lot = shortLots[0];
+          const closeQty = Math.min(remaining, lot.quantity);
+          const openPremium = lot.pricePerContract * closeQty * 100;
+          const closePremium = price * closeQty * 100;
+          const openFeesAlloc = lot.fees * (closeQty / lot.quantity);
+          const closeFeesAlloc = fees * (closeQty / qty);
+          const profit = openPremium - closePremium - openFeesAlloc - closeFeesAlloc;
+          positions.push({
+            ticker,
+            optionType: optionType as "call" | "put",
+            strike: Number(strike),
+            expiry,
+            quantity: closeQty,
+            profit,
+            ...(withDate && { closedAt: date }),
+          } as ClosedPosition & Partial<ClosedPositionWithDate>);
+
+          remaining -= closeQty;
+          lot.quantity -= closeQty;
+          lot.fees -= openFeesAlloc;
+          if (lot.quantity <= 0) shortLots.shift();
+        }
+        if (remaining > 0) {
+          longLots.push({ quantity: remaining, pricePerContract: price, tradeDate: date, fees: fees * (remaining / qty) });
+        }
+      } else {
+        let remaining = qty;
+        while (remaining > 0 && longLots.length > 0) {
+          const lot = longLots[0];
+          const closeQty = Math.min(remaining, lot.quantity);
+          const openPremium = lot.pricePerContract * closeQty * 100;
+          const closePremium = price * closeQty * 100;
+          const openFeesAlloc = lot.fees * (closeQty / lot.quantity);
+          const closeFeesAlloc = fees * (closeQty / qty);
+          const profit = closePremium - openPremium - openFeesAlloc - closeFeesAlloc;
+          positions.push({
+            ticker,
+            optionType: optionType as "call" | "put",
+            strike: Number(strike),
+            expiry,
+            quantity: closeQty,
+            profit,
+            ...(withDate && { closedAt: date }),
+          } as ClosedPosition & Partial<ClosedPositionWithDate>);
+
+          remaining -= closeQty;
+          lot.quantity -= closeQty;
+          lot.fees -= openFeesAlloc;
+          if (lot.quantity <= 0) longLots.shift();
+        }
+        if (remaining > 0) {
+          shortLots.push({ quantity: remaining, pricePerContract: price, tradeDate: date, fees: fees * (remaining / qty) });
+        }
+      }
+      i++;
+    }
+  }
+
+  const byDate = (a: ClosedPosition | ClosedPositionWithDate, b: ClosedPosition | ClosedPositionWithDate) => {
+    const aDate = "closedAt" in a ? (a.closedAt ?? "") : "";
+    const bDate = "closedAt" in b ? (b.closedAt ?? "") : "";
+    return (bDate as string).localeCompare(aDate as string) || a.ticker.localeCompare(b.ticker);
+  };
+  return positions.sort(byDate);
+}
+
+/**
+ * Closed positions = one entry per round trip (FIFO). Same option sold/bought multiple times = multiple entries.
+ * Profit = earnings minus fees for that round trip.
  */
 export function getClosedPositions(trades: TradeForClosed[]): ClosedPosition[] {
-  const key = (t: TradeForClosed) => `${t.ticker}|${t.optionType}|${t.strike}|${t.expiry}`;
-  const netQty = new Map<string, number>();
-  const profit = new Map<string, number>();
-  const feesSum = new Map<string, number>();
-
-  for (const t of trades) {
-    const k = key(t);
-    const q = t.action === "buy" ? t.quantity : -t.quantity;
-    netQty.set(k, (netQty.get(k) ?? 0) + q);
-    const premium = t.quantity * t.pricePerContract * 100;
-    const pnl = t.action === "sell" ? premium : -premium;
-    profit.set(k, (profit.get(k) ?? 0) + pnl);
-    const tradeFees = t.fees != null ? t.fees : 0;
-    feesSum.set(k, (feesSum.get(k) ?? 0) + tradeFees);
-  }
-
-  const positions: ClosedPosition[] = [];
-  const totalSells = new Map<string, number>();
-
-  for (const t of trades) {
-    const k = key(t);
-    if (netQty.get(k) !== 0) continue;
-    if (t.action === "sell") totalSells.set(k, (totalSells.get(k) ?? 0) + t.quantity);
-  }
-
-  for (const [k, n] of netQty) {
-    if (n !== 0) continue;
-    const p = (profit.get(k) ?? 0) - (feesSum.get(k) ?? 0);
-    const [ticker, optionType, strike, expiry] = k.split("|");
-    positions.push({
-      ticker,
-      optionType: optionType as "call" | "put",
-      strike: Number(strike),
-      expiry,
-      quantity: totalSells.get(k) ?? 0,
-      profit: p,
-    });
-  }
-
-  return positions.sort((a, b) => a.ticker.localeCompare(b.ticker) || a.expiry.localeCompare(b.expiry));
+  return getClosedPositionsFIFO(trades, false) as ClosedPosition[];
 }
 
 /**
- * Like getClosedPositions but also returns closedAt (tradeDate of last trade that closed the position).
- * Profit = earnings (premium) minus fees for all trades in the position.
+ * Like getClosedPositions but each entry has closedAt (date of the closing trade).
+ * One entry per round trip (FIFO).
  */
 export function getClosedPositionsWithDates(trades: TradeForClosedWithDate[]): ClosedPositionWithDate[] {
-  const key = (t: TradeForClosedWithDate) => `${t.ticker}|${t.optionType}|${t.strike}|${t.expiry}`;
-  const netQty = new Map<string, number>();
-  const profit = new Map<string, number>();
-  const feesSum = new Map<string, number>();
-  const lastTradeDate = new Map<string, string>();
-
-  for (const t of trades) {
-    const k = key(t);
-    const q = t.action === "buy" ? t.quantity : -t.quantity;
-    netQty.set(k, (netQty.get(k) ?? 0) + q);
-    const premium = t.quantity * t.pricePerContract * 100;
-    const pnl = t.action === "sell" ? premium : -premium;
-    profit.set(k, (profit.get(k) ?? 0) + pnl);
-    const tradeFees = t.fees != null ? t.fees : 0;
-    feesSum.set(k, (feesSum.get(k) ?? 0) + tradeFees);
-    lastTradeDate.set(k, t.tradeDate);
-  }
-
-  const totalSells = new Map<string, number>();
-
-  for (const t of trades) {
-    const k = key(t);
-    if (netQty.get(k) !== 0) continue;
-    if (t.action === "sell") totalSells.set(k, (totalSells.get(k) ?? 0) + t.quantity);
-  }
-
-  const positions: ClosedPositionWithDate[] = [];
-  for (const [k, n] of netQty) {
-    if (n !== 0) continue;
-    const p = (profit.get(k) ?? 0) - (feesSum.get(k) ?? 0);
-    const closedAt = lastTradeDate.get(k) ?? "";
-    const [ticker, optionType, strike, expiry] = k.split("|");
-    positions.push({
-      ticker,
-      optionType: optionType as "call" | "put",
-      strike: Number(strike),
-      expiry,
-      quantity: totalSells.get(k) ?? 0,
-      profit: p,
-      closedAt,
-    });
-  }
-
-  return positions.sort(
-    (a, b) => (b.closedAt || "").localeCompare(a.closedAt || "") || a.ticker.localeCompare(b.ticker)
-  );
+  return getClosedPositionsFIFO(trades, true) as ClosedPositionWithDate[];
 }

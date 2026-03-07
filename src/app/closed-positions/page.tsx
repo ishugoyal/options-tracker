@@ -21,6 +21,7 @@ export default async function ClosedPositionsPage() {
       quantity: t.quantity,
       pricePerContract: t.pricePerContract,
       fees: t.fees,
+      tradeDate: t.tradeDate,
     }))
   );
 
@@ -31,7 +32,7 @@ export default async function ClosedPositionsPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Closed positions</h1>
         <p className="mt-1 text-slate-400">
-          Options where you have fully closed the position (same number of buys and sells). P/L = earnings (premium) minus fees.
+          One entry per round trip (open then close). Same option traded multiple times shows as separate rows. P/L = earnings (premium) minus fees.
         </p>
       </div>
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { getOpenPositions, getClosedPositions } from "@/lib/open-positions";
+import { getOpenPositions, getClosedPositions, getClosedPositionsWithDates } from "@/lib/open-positions";
 import { getActionLabels } from "@/lib/action-labels";
 import { toTrade } from "@/types/trade";
 import { SummaryCards } from "@/components/SummaryCards";
@@ -10,12 +10,20 @@ import { ClosedPositionsPreview } from "@/components/ClosedPositionsPreview";
 
 export const dynamic = "force-dynamic";
 
+const thisYear = new Date().getFullYear();
+const yearStart = `${thisYear}-01-01`;
+const yearEnd = `${thisYear}-12-31`;
+
 export default async function HomePage() {
   const allTrades = await prisma.trade.findMany({
     orderBy: { tradeDate: "desc" },
   });
 
-  const tradesForSummary = allTrades.slice(0, 50).map(toTrade);
+  const tradesThisYear = allTrades.filter(
+    (t) => t.tradeDate >= yearStart && t.tradeDate <= yearEnd
+  );
+  const tradesForSummary = tradesThisYear.slice(0, 50).map(toTrade);
+  const tradesForSummaryCount = tradesThisYear.map(toTrade);
 
   const tradesForPositions = allTrades.filter((t) => t.isOrphanClose !== true);
 
@@ -30,7 +38,7 @@ export default async function HomePage() {
     }))
   );
 
-  const closedPositions = getClosedPositions(
+  const closedPositionsAll = getClosedPositionsWithDates(
     tradesForPositions.map((t) => ({
       ticker: t.ticker,
       optionType: t.optionType,
@@ -40,7 +48,11 @@ export default async function HomePage() {
       quantity: t.quantity,
       pricePerContract: t.pricePerContract,
       fees: t.fees,
+      tradeDate: t.tradeDate,
     }))
+  );
+  const closedPositions = closedPositionsAll.filter(
+    (p) => p.closedAt >= yearStart && p.closedAt <= yearEnd
   );
   const totalClosedProfit = closedPositions.reduce((sum, p) => sum + p.profit, 0);
 
@@ -61,12 +73,12 @@ export default async function HomePage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="mt-1 text-slate-400">Options trading activity at a glance.</p>
+        <p className="mt-1 text-slate-400">Options trading activity this year ({thisYear}).</p>
       </div>
       <SummaryCards
-        trades={tradesForSummary}
+        trades={tradesForSummaryCount}
         totalRealizedPL={totalClosedProfit}
-        allTradesForFees={allTrades.map(toTrade)}
+        allTradesForFees={tradesForSummaryCount}
       />
 
       <div className="flex gap-4">
