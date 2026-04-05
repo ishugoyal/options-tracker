@@ -129,6 +129,7 @@ export function CsvImport() {
 
   const hasMapping =
     preset.id === "fidelity" ||
+    preset.id === "robinhood" ||
     (Object.keys(effectiveMap).length > 0 && Object.values(effectiveMap).some(Boolean));
 
   return (
@@ -166,10 +167,14 @@ export function CsvImport() {
 
       {headers.length > 0 && (
         <div className="rounded-lg border border-slate-700 bg-slate-800/30 p-6">
-          <h2 className="mb-4 text-lg font-semibold text-white">2. Map columns (Fidelity/Robinhood presets TBD)</h2>
+          <h2 className="mb-4 text-lg font-semibold text-white">2. Map columns (Fidelity/Robinhood presets)</h2>
           {preset.id === "fidelity" ? (
             <p className="mb-4 text-slate-400 text-sm">
               Fidelity format is auto-detected from your CSV (Run Date, Action, Symbol, Description, Price, Quantity, etc.). Option rows are parsed from Symbol (e.g. MSFT260327P365) and Action (YOU BOUGHT / YOU SOLD). Non-option rows are skipped. No column mapping needed.
+            </p>
+          ) : preset.id === "robinhood" ? (
+            <p className="mb-4 text-slate-400 text-sm">
+              Robinhood format is auto-detected (Activity Date, Instrument, Description, Trans Code, Quantity, Price, Amount). Trans Code: BTO/STO = open, BTC/STC = close. Rows that are not options are skipped. No column mapping needed.
             </p>
           ) : (
             <>

@@ -2,6 +2,7 @@ import { parse } from "papaparse";
 import { format, parse as parseDate } from "date-fns";
 import type { BrokerPreset, OurField } from "./broker-presets";
 import { parseFidelityRow } from "./fidelity-csv";
+import { parseRobinhoodRow } from "./robinhood-csv";
 
 export interface NormalizedRow {
   ticker: string;
@@ -215,6 +216,9 @@ export function normalizeRows(
   if (preset.id === "fidelity") {
     return normalizeFidelityRows(rows);
   }
+  if (preset.id === "robinhood") {
+    return normalizeRobinhoodRows(rows);
+  }
 
   const map = preset.columnMap;
   const errors: string[] = [];
@@ -273,6 +277,20 @@ function normalizeFidelityRows(rows: Record<string, string>[]): { ok: Normalized
       // Skip non-option rows (e.g. cash, dividends) without error
       return;
     }
+    ok.push(parsed);
+  });
+
+  return { ok, errors };
+}
+
+/** Robinhood CSV: Activity Date, Instrument, Description, Trans Code (BTO/STO/BTC/STC). Skips non-option rows. */
+function normalizeRobinhoodRows(rows: Record<string, string>[]): { ok: NormalizedRow[]; errors: string[] } {
+  const ok: NormalizedRow[] = [];
+  const errors: string[] = [];
+
+  rows.forEach((row) => {
+    const parsed = parseRobinhoodRow(row);
+    if (parsed === null) return;
     ok.push(parsed);
   });
 
