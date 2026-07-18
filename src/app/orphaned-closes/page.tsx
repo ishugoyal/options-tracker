@@ -16,8 +16,8 @@ export default async function OrphanedClosesPage() {
         <h1 className="text-2xl font-bold text-white">Orphaned closing trades</h1>
         <p className="mt-1 text-slate-400">
           Closing trades that had no matching opening trade in the app (or in the same import). They are excluded from
-          open and closed position calculations. Add the missing opening trade or delete these if they were imported by
-          mistake.
+          open and closed position calculations. Link to an existing open, add a new opening trade, or delete if imported
+          by mistake.
         </p>
       </div>
 

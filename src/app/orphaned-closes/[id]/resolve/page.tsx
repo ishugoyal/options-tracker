@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { getOrphanOpenCandidates } from "@/lib/orphan-open-candidates";
 import { ResolveOrphanForm } from "@/components/ResolveOrphanForm";
 
 export const dynamic = "force-dynamic";
@@ -11,18 +12,21 @@ export default async function ResolveOrphanPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const orphan = await prisma.trade.findUnique({
+  const orphan = await prisma.trade.findFirst({
     where: { id, isOrphanClose: true },
   });
   if (!orphan) notFound();
+
+  const allTrades = await prisma.trade.findMany();
+  const candidates = getOrphanOpenCandidates(orphan, allTrades);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Resolve orphaned close</h1>
         <p className="mt-1 text-slate-400">
-          Add the matching opening trade for this closing trade. The new opening trade will be linked and the close will
-          no longer appear as orphaned.
+          Link this close to an existing opening trade in the app, or create a new opening trade. The close will no
+          longer appear as orphaned.
         </p>
       </div>
 
@@ -45,6 +49,7 @@ export default async function ResolveOrphanPage({
           pricePerContract: orphan.pricePerContract,
           tradeDate: orphan.tradeDate,
         }}
+        candidates={candidates}
       />
 
       <Link href="/orphaned-closes" className="inline-block text-sky-400 hover:underline">
