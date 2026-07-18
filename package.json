@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "start:railway": "prisma db push && next start",
+    "start:railway": "prisma db push --skip-generate && next start -H 0.0.0.0 -p ${PORT:-3000}",
     "lint": "next lint",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
