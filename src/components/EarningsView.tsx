@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useMemo } from "react";
 import { format, parseISO } from "date-fns";
@@ -84,6 +84,19 @@ export function EarningsView({ positions, allTickers }: EarningsViewProps) {
 
   const timeLabel = dateRange ? formatDateRange(dateRange) : "All time";
 
+  const viewAllHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (dateRange) {
+      params.set("start", dateRange.start);
+      params.set("end", dateRange.end);
+    }
+    if (selectedTickers.length > 0) {
+      params.set("tickers", selectedTickers.join(","));
+    }
+    const qs = params.toString();
+    return qs ? `/closed-positions?${qs}` : "/closed-positions";
+  }, [dateRange, selectedTickers]);
+
   return (
     <div className="space-y-8">
       <div>
@@ -126,7 +139,7 @@ export function EarningsView({ positions, allTickers }: EarningsViewProps) {
           onClick={() => setTimeModalOpen(true)}
           className="flex items-center gap-2 rounded border border-slate-600 bg-slate-800/50 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
         >
-          <span className="text-slate-500">📅</span>
+          <span className="text-slate-500">≡ƒôà</span>
           {timeLabel}
         </button>
         <select
@@ -146,7 +159,7 @@ export function EarningsView({ positions, allTickers }: EarningsViewProps) {
             onClick={() => setTickerDropdownOpen((o) => !o)}
             className="flex items-center gap-2 rounded border border-slate-600 bg-slate-800/50 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
           >
-            Tickers {selectedTickers.length > 0 ? `(${selectedTickers.length})` : ""} ▾
+            Tickers {selectedTickers.length > 0 ? `(${selectedTickers.length})` : ""} Γû╛
           </button>
           {tickerDropdownOpen && (
             <>
@@ -265,50 +278,78 @@ export function EarningsView({ positions, allTickers }: EarningsViewProps) {
 
       {/* Detailed list */}
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-white">Closed positions</h2>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-white">Closed positions</h2>
+          {filteredPositions.length > 20 && (
+            <a
+              href={viewAllHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded border border-slate-600 px-3 py-1.5 text-sm text-sky-400 hover:bg-slate-800"
+            >
+              View all {filteredPositions.length} →
+            </a>
+          )}
+        </div>
         {filteredPositions.length === 0 ? (
           <p className="rounded-lg border border-slate-700 bg-slate-800/30 p-6 text-center text-slate-400">
             No positions to show. Adjust filters or date range.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-slate-700">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-700 bg-slate-800/80 text-slate-400">
-                <tr>
-                  <th className="px-4 py-3">Closed date</th>
-                  <th className="px-4 py-3">Ticker</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Strike</th>
-                  <th className="px-4 py-3">Expiry</th>
-                  <th className="px-4 py-3">Qty</th>
-                  <th className="px-4 py-3 text-right">P/L</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700">
-                {[...filteredPositions]
-                  .sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""))
-                  .map((p, i) => (
-                    <tr key={`${p.ticker}-${p.expiry}-${p.optionType}-${p.strike}-${i}`} className="hover:bg-slate-800/50">
-                      <td className="px-4 py-2 text-slate-300">
-                        {p.closedAt ? format(parseISO(p.closedAt), "MMM d, yyyy") : "—"}
-                      </td>
-                      <td className="px-4 py-2 font-medium text-white">{p.ticker}</td>
-                      <td className="px-4 py-2 capitalize text-slate-300">{p.optionType}</td>
-                      <td className="px-4 py-2 text-slate-300">{p.strike}</td>
-                      <td className="px-4 py-2 text-slate-300">{p.expiry}</td>
-                      <td className="px-4 py-2 text-slate-300">{p.quantity}</td>
-                      <td
-                        className={`px-4 py-2 text-right font-medium ${
-                          p.profit >= 0 ? "text-green-400" : "text-red-400"
-                        }`}
-                      >
-                        {fmtMoney(p.profit)}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="overflow-x-auto rounded-lg border border-slate-700">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-slate-700 bg-slate-800/80 text-slate-400">
+                  <tr>
+                    <th className="px-4 py-3">Closed date</th>
+                    <th className="px-4 py-3">Ticker</th>
+                    <th className="px-4 py-3">Type</th>
+                    <th className="px-4 py-3">Strike</th>
+                    <th className="px-4 py-3">Expiry</th>
+                    <th className="px-4 py-3">Qty</th>
+                    <th className="px-4 py-3 text-right">P/L</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700">
+                  {[...filteredPositions]
+                    .sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""))
+                    .slice(0, 20)
+                    .map((p, i) => (
+                      <tr key={`${p.ticker}-${p.expiry}-${p.optionType}-${p.strike}-${i}`} className="hover:bg-slate-800/50">
+                        <td className="px-4 py-2 text-slate-300">
+                          {p.closedAt ? format(parseISO(p.closedAt), "MMM d, yyyy") : "—"}
+                        </td>
+                        <td className="px-4 py-2 font-medium text-white">{p.ticker}</td>
+                        <td className="px-4 py-2 capitalize text-slate-300">{p.optionType}</td>
+                        <td className="px-4 py-2 text-slate-300">{p.strike}</td>
+                        <td className="px-4 py-2 text-slate-300">{p.expiry}</td>
+                        <td className="px-4 py-2 text-slate-300">{p.quantity}</td>
+                        <td
+                          className={`px-4 py-2 text-right font-medium ${
+                            p.profit >= 0 ? "text-green-400" : "text-red-400"
+                          }`}
+                        >
+                          {fmtMoney(p.profit)}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+            {filteredPositions.length > 20 && (
+              <p className="mt-2 text-sm text-slate-500">
+                Showing 20 of {filteredPositions.length}.{" "}
+                <a
+                  href={viewAllHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-400 hover:underline"
+                >
+                  Open full list in a new tab
+                </a>
+              </p>
+            )}
+          </>
         )}
       </section>
     </div>
