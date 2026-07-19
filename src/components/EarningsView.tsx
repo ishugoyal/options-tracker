@@ -1,14 +1,16 @@
-﻿"use client";
+"use client";
 
 import { useState, useMemo } from "react";
 import { format, parseISO } from "date-fns";
 import type { ClosedPositionWithDate } from "@/lib/open-positions";
+import type { RollChain } from "@/lib/rolls";
 import { getPLBreakdown, getAllPeriodLabels, type PLGroupBy } from "@/lib/pl-breakdown";
 import { isDateInRange, formatDateRange, type DateRange } from "@/lib/earnings-filters";
 import { TimeFilterModal } from "@/components/TimeFilterModal";
 
 interface EarningsViewProps {
   positions: ClosedPositionWithDate[];
+  rollChains: RollChain[];
   allTickers: string[];
 }
 
@@ -23,7 +25,7 @@ function fmtMoney(profit: number) {
   return (profit >= 0 ? "+" : "") + "$" + profit.toLocaleString("en-US", { minimumFractionDigits: 2 });
 }
 
-export function EarningsView({ positions, allTickers }: EarningsViewProps) {
+export function EarningsView({ positions, rollChains, allTickers }: EarningsViewProps) {
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [granularity, setGranularity] = useState<PLGroupBy>("month");
   const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
@@ -41,6 +43,20 @@ export function EarningsView({ positions, allTickers }: EarningsViewProps) {
     }
     return list;
   }, [positions, dateRange, selectedTickers]);
+
+  const filteredRollChains = useMemo(() => {
+    let list = rollChains;
+    if (dateRange) {
+      list = list.filter((chain) =>
+        isDateInRange(chain.closedAt ?? chain.lastActivityAt, dateRange)
+      );
+    }
+    if (selectedTickers.length > 0) {
+      const set = new Set(selectedTickers);
+      list = list.filter((chain) => set.has(chain.ticker));
+    }
+    return list;
+  }, [rollChains, dateRange, selectedTickers]);
 
   const buckets = useMemo(
     () => getPLBreakdown(filteredPositions, granularity),
@@ -139,7 +155,7 @@ export function EarningsView({ positions, allTickers }: EarningsViewProps) {
           onClick={() => setTimeModalOpen(true)}
           className="flex items-center gap-2 rounded border border-slate-600 bg-slate-800/50 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
         >
-          <span className="text-slate-500">≡ƒôà</span>
+          <span className="text-slate-500">📅</span>
           {timeLabel}
         </button>
         <select
@@ -159,7 +175,7 @@ export function EarningsView({ positions, allTickers }: EarningsViewProps) {
             onClick={() => setTickerDropdownOpen((o) => !o)}
             className="flex items-center gap-2 rounded border border-slate-600 bg-slate-800/50 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
           >
-            Tickers {selectedTickers.length > 0 ? `(${selectedTickers.length})` : ""} Γû╛
+            Tickers {selectedTickers.length > 0 ? `(${selectedTickers.length})` : ""} ▾
           </button>
           {tickerDropdownOpen && (
             <>
@@ -350,6 +366,93 @@ export function EarningsView({ positions, allTickers }: EarningsViewProps) {
               </p>
             )}
           </>
+        )}
+      </section>
+
+      {/* Additive roll-chain reporting. Closed-position/FIFO rows above remain unchanged. */}
+      <section>
+        <div className="mb-3">
+          <h2 className="text-lg font-semibold text-white">Roll chains</h2>
+          <p className="text-sm text-slate-400">
+            One row per confirmed chain. Whole-chain P/L includes the original opening trade, every confirmed roll
+            step, the final close, and allocated fees.
+          </p>
+        </div>
+        {filteredRollChains.length === 0 ? (
+          <p className="rounded-lg border border-slate-700 bg-slate-800/30 p-6 text-center text-slate-400">
+            No confirmed roll chains in the selected range.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-slate-700">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-700 bg-slate-800/80 text-slate-400">
+                <tr>
+                  <th className="px-4 py-3">Started</th>
+                  <th className="px-4 py-3">Closed / last activity</th>
+                  <th className="px-4 py-3">Ticker</th>
+                  <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Chain</th>
+                  <th className="px-4 py-3">Qty</th>
+                  <th className="px-4 py-3">Steps</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Premium</th>
+                  <th className="px-4 py-3 text-right">Fees</th>
+                  <th className="px-4 py-3 text-right">Whole-chain P/L</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700">
+                {filteredRollChains.map((chain) => (
+                  <tr key={chain.id} className="hover:bg-slate-800/50">
+                    <td className="px-4 py-2 text-slate-300">
+                      {format(parseISO(chain.startedAt), "MMM d, yyyy")}
+                    </td>
+                    <td className="px-4 py-2 text-slate-300">
+                      {format(parseISO(chain.closedAt ?? chain.lastActivityAt), "MMM d, yyyy")}
+                    </td>
+                    <td className="px-4 py-2 font-medium text-white">{chain.ticker}</td>
+                    <td className="px-4 py-2 capitalize text-slate-300">{chain.optionType}</td>
+                    <td className="px-4 py-2 text-slate-300">
+                      ${chain.startStrike} {chain.startExpiry} → ${chain.endStrike} {chain.endExpiry}
+                    </td>
+                    <td className="px-4 py-2 text-slate-300">{chain.quantity}</td>
+                    <td className="px-4 py-2 text-slate-300">{chain.steps.length}</td>
+                    <td className="px-4 py-2">
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-xs ${
+                          chain.isClosed
+                            ? "bg-green-900/40 text-green-300"
+                            : "bg-amber-900/40 text-amber-300"
+                        }`}
+                      >
+                        {chain.isClosed ? "Closed" : "Open"}
+                      </span>
+                    </td>
+                    <td
+                      className={`px-4 py-2 text-right ${
+                        chain.pl.premium >= 0 ? "text-green-400" : "text-red-400"
+                      }`}
+                    >
+                      {fmtMoney(chain.pl.premium)}
+                    </td>
+                    <td className="px-4 py-2 text-right text-slate-400">
+                      ${chain.pl.fees.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </td>
+                    <td
+                      className={`px-4 py-2 text-right font-medium ${
+                        chain.isClosed
+                          ? chain.pl.pl >= 0
+                            ? "text-green-400"
+                            : "text-red-400"
+                          : "text-slate-500"
+                      }`}
+                    >
+                      {chain.isClosed ? fmtMoney(chain.pl.pl) : "Pending"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </div>
