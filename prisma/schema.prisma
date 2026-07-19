@@ -25,3 +25,15 @@ model Trade {
   isOrphanClose   Boolean  @default(false) // closing trade with no matching open; exclude from position calc
   createdAt       DateTime @default(now())
 }
+
+model RollLink {
+  id           String   @id @default(cuid())
+  closeTradeId String
+  openTradeId  String
+  quantity     Int
+  createdAt    DateTime @default(now())
+
+  @@unique([closeTradeId, openTradeId])
+  @@index([closeTradeId])
+  @@index([openTradeId])
+}
