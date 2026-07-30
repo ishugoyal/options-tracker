@@ -14,7 +14,9 @@ interface EarningsViewProps {
   allTickers: string[];
 }
 
-const GRANULARITY_OPTIONS: { value: PLGroupBy; label: string }[] = [
+type PeriodGranularity = Exclude<PLGroupBy, "ticker">;
+
+const GRANULARITY_OPTIONS: { value: PeriodGranularity; label: string }[] = [
   { value: "week", label: "Weekly" },
   { value: "month", label: "Monthly" },
   { value: "quarter", label: "Quarterly" },
@@ -27,7 +29,7 @@ function fmtMoney(profit: number) {
 
 export function EarningsView({ positions, rollChains, allTickers }: EarningsViewProps) {
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
-  const [granularity, setGranularity] = useState<PLGroupBy>("month");
+  const [granularity, setGranularity] = useState<PeriodGranularity>("month");
   const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
   const [timeModalOpen, setTimeModalOpen] = useState(false);
   const [tickerDropdownOpen, setTickerDropdownOpen] = useState(false);
@@ -63,10 +65,12 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
     [filteredPositions, granularity]
   );
 
-  const chartBuckets = useMemo(() => {
-    if (granularity === "ticker") return buckets;
-    return [...buckets].reverse();
-  }, [buckets, granularity]);
+  const tickerBuckets = useMemo(
+    () => getPLBreakdown(filteredPositions, "ticker"),
+    [filteredPositions]
+  );
+
+  const chartBuckets = useMemo(() => [...buckets].reverse(), [buckets]);
 
   const bucketByLabel = useMemo(() => {
     const m = new Map<string, { profit: number; count: number }>();
@@ -75,7 +79,6 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
   }, [buckets]);
 
   const allPeriodLabels = useMemo(() => {
-    if (granularity === "ticker") return chartBuckets.map((b) => b.label);
     const range = dateRange ?? (() => {
       const dates = filteredPositions.map((p) => p.closedAt).filter(Boolean) as string[];
       if (dates.length === 0) return null;
@@ -148,7 +151,7 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
         </div>
       </div>
 
-      {/* Toolbar: Time filter, Granularity, Ticker filter */}
+      {/* Toolbar: filters only */}
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -158,17 +161,6 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
           <span className="text-slate-500">📅</span>
           {timeLabel}
         </button>
-        <select
-          value={granularity}
-          onChange={(e) => setGranularity(e.target.value as PLGroupBy)}
-          className="rounded border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white"
-        >
-          {GRANULARITY_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
         <div className="relative">
           <button
             type="button"
@@ -221,9 +213,83 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
         onApply={(r) => setDateRange(r)}
       />
 
-      {/* Bar chart */}
+      {/* Primary: ticker contribution for the selected period */}
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-white">Earnings by period</h2>
+        <div className="mb-3">
+          <h2 className="text-lg font-semibold text-white">Earnings by ticker</h2>
+          <p className="text-sm text-slate-400">
+            How much each ticker contributed in {timeLabel.toLowerCase()}.
+          </p>
+        </div>
+        {tickerBuckets.length === 0 ? (
+          <p className="rounded-lg border border-slate-700 bg-slate-800/30 p-6 text-center text-slate-400">
+            No closed positions in the selected range.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-slate-700">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-700 bg-slate-800/80 text-slate-400">
+                <tr>
+                  <th className="px-4 py-3">Ticker</th>
+                  <th className="px-4 py-3">Positions</th>
+                  <th className="px-4 py-3 text-right">P/L</th>
+                  <th className="px-4 py-3 text-right">Share of total</th>
+                  <th className="px-4 py-3 text-right">Avg / position</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700">
+                {tickerBuckets.map((b) => {
+                  const share = totalProfit !== 0 ? (b.profit / totalProfit) * 100 : 0;
+                  return (
+                    <tr key={b.label} className="hover:bg-slate-800/50">
+                      <td className="px-4 py-2 font-medium text-white">{b.label}</td>
+                      <td className="px-4 py-2 text-slate-300">{b.count}</td>
+                      <td
+                        className={`px-4 py-2 text-right font-medium ${
+                          b.profit >= 0 ? "text-green-400" : "text-red-400"
+                        }`}
+                      >
+                        {fmtMoney(b.profit)}
+                      </td>
+                      <td className="px-4 py-2 text-right text-slate-300">
+                        {share >= 0 ? "+" : ""}
+                        {share.toFixed(1)}%
+                      </td>
+                      <td
+                        className={`px-4 py-2 text-right ${
+                          b.profit / b.count >= 0 ? "text-green-400" : "text-red-400"
+                        }`}
+                      >
+                        {fmtMoney(b.profit / b.count)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Secondary: time series for the same filtered set */}
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Earnings by period</h2>
+            <p className="text-sm text-slate-400">Same filtered range, grouped over time.</p>
+          </div>
+          <select
+            value={granularity}
+            onChange={(e) => setGranularity(e.target.value as PeriodGranularity)}
+            className="rounded border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white"
+          >
+            {GRANULARITY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
         {buckets.length === 0 && allPeriodLabels.length === 0 ? (
           <p className="rounded-lg border border-slate-700 bg-slate-800/30 p-6 text-center text-slate-400">
             No closed positions in the selected range.
