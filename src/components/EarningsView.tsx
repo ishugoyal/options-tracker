@@ -6,6 +6,10 @@ import type { ClosedPositionWithDate } from "@/lib/open-positions";
 import type { RollChain } from "@/lib/rolls";
 import { getPLBreakdown, getAllPeriodLabels, type PLGroupBy } from "@/lib/pl-breakdown";
 import { isDateInRange, formatDateRange, type DateRange } from "@/lib/earnings-filters";
+import {
+  buildEarningsPositions,
+  type EarningsTimingMode,
+} from "@/lib/earnings-positions";
 import { TimeFilterModal } from "@/components/TimeFilterModal";
 
 interface EarningsViewProps {
@@ -23,28 +27,63 @@ const GRANULARITY_OPTIONS: { value: PeriodGranularity; label: string }[] = [
   { value: "year", label: "Yearly" },
 ];
 
+const TIMING_OPTIONS: { value: EarningsTimingMode; label: string; hint: string }[] = [
+  {
+    value: "chain",
+    label: "Chain realization",
+    hint: "Confirmed roll chains book full P/L on the final close date.",
+  },
+  {
+    value: "cash",
+    label: "Cash timing",
+    hint: "Each closed leg books P/L on its own close date (FIFO).",
+  },
+];
+
 function fmtMoney(profit: number) {
   return (profit >= 0 ? "+" : "") + "$" + profit.toLocaleString("en-US", { minimumFractionDigits: 2 });
+}
+
+function applyFilters(
+  list: ClosedPositionWithDate[],
+  dateRange: DateRange | null,
+  selectedTickers: string[]
+): ClosedPositionWithDate[] {
+  let next = list;
+  if (dateRange) {
+    next = next.filter((p) => p.closedAt && isDateInRange(p.closedAt, dateRange));
+  }
+  if (selectedTickers.length > 0) {
+    const set = new Set(selectedTickers);
+    next = next.filter((p) => set.has(p.ticker));
+  }
+  return next;
 }
 
 export function EarningsView({ positions, rollChains, allTickers }: EarningsViewProps) {
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [granularity, setGranularity] = useState<PeriodGranularity>("month");
+  const [timingMode, setTimingMode] = useState<EarningsTimingMode>("chain");
   const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
   const [timeModalOpen, setTimeModalOpen] = useState(false);
   const [tickerDropdownOpen, setTickerDropdownOpen] = useState(false);
 
-  const filteredPositions = useMemo(() => {
-    let list = positions;
-    if (dateRange) {
-      list = list.filter((p) => p.closedAt && isDateInRange(p.closedAt, dateRange));
-    }
-    if (selectedTickers.length > 0) {
-      const set = new Set(selectedTickers);
-      list = list.filter((p) => set.has(p.ticker));
-    }
-    return list;
-  }, [positions, dateRange, selectedTickers]);
+  const earningsPositions = useMemo(
+    () => buildEarningsPositions(positions, rollChains, timingMode),
+    [positions, rollChains, timingMode]
+  );
+
+  // Closed-positions table stays FIFO reality regardless of timing mode.
+  const filteredPositions = useMemo(
+    () => applyFilters(positions, dateRange, selectedTickers),
+    [positions, dateRange, selectedTickers]
+  );
+
+  // Totals / charts / by-ticker use earnings timing.
+  const filteredEarnings = useMemo(
+    () => applyFilters(earningsPositions, dateRange, selectedTickers),
+    [earningsPositions, dateRange, selectedTickers]
+  );
 
   const filteredRollChains = useMemo(() => {
     let list = rollChains;
@@ -61,13 +100,13 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
   }, [rollChains, dateRange, selectedTickers]);
 
   const buckets = useMemo(
-    () => getPLBreakdown(filteredPositions, granularity),
-    [filteredPositions, granularity]
+    () => getPLBreakdown(filteredEarnings, granularity),
+    [filteredEarnings, granularity]
   );
 
   const tickerBuckets = useMemo(
-    () => getPLBreakdown(filteredPositions, "ticker"),
-    [filteredPositions]
+    () => getPLBreakdown(filteredEarnings, "ticker"),
+    [filteredEarnings]
   );
 
   const chartBuckets = useMemo(() => [...buckets].reverse(), [buckets]);
@@ -80,18 +119,20 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
 
   const allPeriodLabels = useMemo(() => {
     const range = dateRange ?? (() => {
-      const dates = filteredPositions.map((p) => p.closedAt).filter(Boolean) as string[];
+      const dates = filteredEarnings.map((p) => p.closedAt).filter(Boolean) as string[];
       if (dates.length === 0) return null;
       return { start: dates.sort()[0]!, end: dates.sort().reverse()[0]! };
     })();
     if (!range) return chartBuckets.map((b) => b.label);
     return getAllPeriodLabels(range.start, range.end, granularity);
-  }, [dateRange, filteredPositions, granularity, chartBuckets]);
+  }, [dateRange, filteredEarnings, granularity, chartBuckets]);
 
   const totalProfit = useMemo(
-    () => filteredPositions.reduce((sum, p) => sum + p.profit, 0),
-    [filteredPositions]
+    () => filteredEarnings.reduce((sum, p) => sum + p.profit, 0),
+    [filteredEarnings]
   );
+
+  const timingHint = TIMING_OPTIONS.find((o) => o.value === timingMode)?.hint;
 
   const toggleTicker = (t: string) => {
     setSelectedTickers((prev) =>
@@ -134,76 +175,97 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
           </p>
         </div>
         <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-          <p className="text-slate-400 text-sm">Closed positions</p>
-          <p className="text-xl font-bold text-white">{filteredPositions.length}</p>
+          <p className="text-slate-400 text-sm">
+            {timingMode === "chain" ? "Earnings events" : "Closed positions"}
+          </p>
+          <p className="text-xl font-bold text-white">{filteredEarnings.length}</p>
         </div>
         <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-          <p className="text-slate-400 text-sm">Average per position</p>
+          <p className="text-slate-400 text-sm">Average per event</p>
           <p
             className={`text-xl font-bold ${
-              filteredPositions.length
-                ? (totalProfit / filteredPositions.length >= 0 ? "text-green-400" : "text-red-400")
+              filteredEarnings.length
+                ? (totalProfit / filteredEarnings.length >= 0 ? "text-green-400" : "text-red-400")
                 : "text-slate-500"
             }`}
           >
-            {filteredPositions.length ? fmtMoney(totalProfit / filteredPositions.length) : "—"}
+            {filteredEarnings.length ? fmtMoney(totalProfit / filteredEarnings.length) : "—"}
           </p>
         </div>
       </div>
 
-      {/* Toolbar: filters only */}
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => setTimeModalOpen(true)}
-          className="flex items-center gap-2 rounded border border-slate-600 bg-slate-800/50 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
-        >
-          <span className="text-slate-500">📅</span>
-          {timeLabel}
-        </button>
-        <div className="relative">
+      {/* Toolbar: filters + timing mode */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={() => setTickerDropdownOpen((o) => !o)}
+            onClick={() => setTimeModalOpen(true)}
             className="flex items-center gap-2 rounded border border-slate-600 bg-slate-800/50 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
           >
-            Tickers {selectedTickers.length > 0 ? `(${selectedTickers.length})` : ""} ▾
+            <span className="text-slate-500">📅</span>
+            {timeLabel}
           </button>
-          {tickerDropdownOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-10"
-                aria-hidden
-                onClick={() => setTickerDropdownOpen(false)}
-              />
-              <div className="absolute left-0 top-full z-20 mt-1 max-h-60 w-56 overflow-auto rounded border border-slate-700 bg-slate-900 py-1">
-                {selectedTickers.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearTickers}
-                    className="w-full px-3 py-1.5 text-left text-xs text-sky-400 hover:bg-slate-800"
-                  >
-                    Clear selection
-                  </button>
-                )}
-                {allTickers.map((t) => (
-                  <label
-                    key={t}
-                    className="flex cursor-pointer items-center gap-2 px-3 py-1.5 hover:bg-slate-800"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedTickers.includes(t)}
-                      onChange={() => toggleTicker(t)}
-                      className="rounded border-slate-600"
-                    />
-                    <span className="text-sm text-white">{t}</span>
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setTickerDropdownOpen((o) => !o)}
+              className="flex items-center gap-2 rounded border border-slate-600 bg-slate-800/50 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
+            >
+              Tickers {selectedTickers.length > 0 ? `(${selectedTickers.length})` : ""} ▾
+            </button>
+            {tickerDropdownOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  aria-hidden
+                  onClick={() => setTickerDropdownOpen(false)}
+                />
+                <div className="absolute left-0 top-full z-20 mt-1 max-h-60 w-56 overflow-auto rounded border border-slate-700 bg-slate-900 py-1">
+                  {selectedTickers.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearTickers}
+                      className="w-full px-3 py-1.5 text-left text-xs text-sky-400 hover:bg-slate-800"
+                    >
+                      Clear selection
+                    </button>
+                  )}
+                  {allTickers.map((t) => (
+                    <label
+                      key={t}
+                      className="flex cursor-pointer items-center gap-2 px-3 py-1.5 hover:bg-slate-800"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedTickers.includes(t)}
+                        onChange={() => toggleTicker(t)}
+                        className="rounded border-slate-600"
+                      />
+                      <span className="text-sm text-white">{t}</span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex rounded border border-slate-600 p-0.5">
+            {TIMING_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => setTimingMode(o.value)}
+                className={`rounded px-3 py-1.5 text-sm ${
+                  timingMode === o.value
+                    ? "bg-slate-700 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
         </div>
+        {timingHint && <p className="text-xs text-slate-500">{timingHint}</p>}
       </div>
 
       <TimeFilterModal
@@ -218,7 +280,8 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
         <div className="mb-3">
           <h2 className="text-lg font-semibold text-white">Earnings by ticker</h2>
           <p className="text-sm text-slate-400">
-            How much each ticker contributed in {timeLabel.toLowerCase()}.
+            How much each ticker contributed in {timeLabel.toLowerCase()}
+            {timingMode === "chain" ? " (chain realization)" : " (cash timing)"}.
           </p>
         </div>
         {tickerBuckets.length === 0 ? (
