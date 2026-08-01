@@ -303,6 +303,7 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
               <tbody className="divide-y divide-slate-700">
                 {tickerBuckets.map((b) => {
                   const share = totalProfit !== 0 ? (b.profit / totalProfit) * 100 : 0;
+                  const shareNa = share < 0 || share > 100;
                   return (
                     <tr key={b.label} className="hover:bg-slate-800/50">
                       <td className="px-4 py-2 font-medium text-white">{b.label}</td>
@@ -315,8 +316,7 @@ export function EarningsView({ positions, rollChains, allTickers }: EarningsView
                         {fmtMoney(b.profit)}
                       </td>
                       <td className="px-4 py-2 text-right text-slate-300">
-                        {share >= 0 ? "+" : ""}
-                        {share.toFixed(1)}%
+                        {shareNa ? "n/a" : `+${share.toFixed(1)}%`}
                       </td>
                       <td
                         className={`px-4 py-2 text-right ${
