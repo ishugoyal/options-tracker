@@ -508,3 +508,82 @@ export function validateRollPair(
   if (!isOpeningLabel(tradeLabel(open, resolvedLabels))) return "Second leg must be an opening trade";
   return null;
 }
+
+export type OpenChainTip = {
+  ticker: string;
+  optionType: "call" | "put";
+  strike: number;
+  expiry: string;
+  key: string;
+};
+
+/** Tip contracts of open (not finally closed) roll chains — used to label import continuations. */
+export function getOpenChainTips(chains: RollChain[]): OpenChainTip[] {
+  return chains
+    .filter((c) => !c.isClosed)
+    .map((c) => ({
+      ticker: c.ticker,
+      optionType: c.optionType,
+      strike: c.endStrike,
+      expiry: c.endExpiry,
+      key: `${c.ticker}|${c.optionType}|${c.endStrike}|${c.endExpiry}`,
+    }));
+}
+
+export type ImportRollRow = {
+  importKey: string;
+  ticker: string;
+  optionType: string;
+  strike: number;
+  expiry: string;
+  action: string;
+  quantity: number;
+  pricePerContract: number;
+  tradeDate: string;
+  fees?: number | null;
+  openClose?: "open" | "close";
+};
+
+export type ImportRollCandidate = RollCandidate & {
+  closeImportKey: string;
+  openImportKey: string;
+  continuesExistingChain: boolean;
+};
+
+/** Build provisional trades for roll detection; importKey is used as temporary id. */
+export function tradesFromImportRows(rows: ImportRollRow[]): TradeForRoll[] {
+  return rows.map((r) => ({
+    id: r.importKey,
+    ticker: String(r.ticker ?? "").toUpperCase(),
+    optionType: r.optionType === "put" ? "put" : "call",
+    strike: Number(r.strike ?? 0),
+    expiry: String(r.expiry ?? ""),
+    action: r.action === "sell" ? "sell" : "buy",
+    quantity: Number(r.quantity ?? 0),
+    pricePerContract: Number(r.pricePerContract ?? 0),
+    tradeDate: String(r.tradeDate ?? ""),
+    fees: r.fees ?? null,
+    closesTradeId: null,
+    // Prefer CSV open/close so same-day rolls label correctly before DB ids exist.
+    isOrphanClose: r.openClose === "close",
+    notes: null,
+  }));
+}
+
+/**
+ * Detect same-day roll suggestions within an import batch (both legs must be in `rows`).
+ * Marks suggestions whose close contract matches an existing open-chain tip.
+ */
+export function detectImportRollCandidates(
+  rows: ImportRollRow[],
+  openTips: OpenChainTip[] = []
+): ImportRollCandidate[] {
+  const trades = tradesFromImportRows(rows);
+  const tipKeys = new Set(openTips.map((t) => t.key));
+  return detectHistoricalRollCandidates(trades, []).map((c) => ({
+    ...c,
+    closeImportKey: c.closeTrade.id,
+    openImportKey: c.openTrade.id,
+    continuesExistingChain: tipKeys.has(optionKey(c.closeTrade)),
+  }));
+}

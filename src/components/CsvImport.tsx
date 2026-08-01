@@ -1,9 +1,14 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { parseCsvFile, normalizeRows, buildImportPreview, type NormalizedRow, type ImportPreviewRow } from "@/lib/csv-import";
 import { BROKER_PRESETS, type OurField } from "@/lib/broker-presets";
+import {
+  detectImportRollCandidates,
+  type ImportRollCandidate,
+  type OpenChainTip,
+} from "@/lib/rolls";
 
 const OUR_FIELDS: OurField[] = [
   "ticker",
@@ -17,6 +22,15 @@ const OUR_FIELDS: OurField[] = [
   "notes",
 ];
 
+function money(n: number): string {
+  const sign = n >= 0 ? "+" : "";
+  return `${sign}$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function legLabel(t: ImportRollCandidate["closeTrade"]): string {
+  return `${t.expiry} ${t.optionType} $${t.strike} · ${t.label} ${t.quantity}@$${t.pricePerContract.toFixed(2)}`;
+}
+
 export function CsvImport() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -27,6 +41,9 @@ export function CsvImport() {
   const [preview, setPreview] = useState<NormalizedRow[] | null>(null);
   const [previewRows, setPreviewRows] = useState<ImportPreviewRow[] | null>(null);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [selectedRollKeys, setSelectedRollKeys] = useState<Set<string>>(new Set());
+  const [openTips, setOpenTips] = useState<OpenChainTip[]>([]);
+  const initializedRollKeysRef = useRef<Set<string>>(new Set());
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -44,6 +61,8 @@ export function CsvImport() {
       setFile(f);
       setPreview(null);
       setPreviewRows(null);
+      setSelectedRollKeys(new Set());
+      initializedRollKeysRef.current = new Set();
       setMessage(null);
       try {
         const { headers: h, rows: r } = await parseCsvFile(f);
@@ -68,12 +87,33 @@ export function CsvImport() {
     const built = ok.length > 0 ? buildImportPreview(ok) : null;
     setPreviewRows(built);
     setSelectedIndices(built ? new Set(built.map((_, i) => i)) : new Set());
+    setSelectedRollKeys(new Set());
+    initializedRollKeysRef.current = new Set();
     if (ok.length === 0 && errors.length > 0) {
       setMessage({ type: "err", text: `No valid rows. ${errors.slice(0, 3).join("; ")}` });
     } else if (ok.length > 0) {
       setMessage(null);
     }
   }, [rows, preset, effectiveMap]);
+
+  useEffect(() => {
+    if (!preview || preview.length === 0) {
+      setOpenTips([]);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/rolls")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setOpenTips(Array.isArray(data.openTips) ? data.openTips : []);
+      })
+      .catch(() => {
+        if (!cancelled) setOpenTips([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [preview]);
 
   /** Build the list of NormalizedRow to send to the API from selected preview row indices (order preserved for pairing). */
   const getTradesToImport = useCallback((): NormalizedRow[] => {
@@ -93,18 +133,95 @@ export function CsvImport() {
     return out;
   }, [previewRows, selectedIndices]);
 
+  const tradesWithKeys = useMemo(() => {
+    return getTradesToImport().map((t, i) => ({
+      ...t,
+      importKey: `imp-${i}`,
+    }));
+  }, [getTradesToImport]);
+
+  const rollSuggestions = useMemo(
+    () => detectImportRollCandidates(tradesWithKeys, openTips),
+    [tradesWithKeys, openTips]
+  );
+
+  // Keep valid selections; default-select high confidence only the first time a suggestion appears.
+  useEffect(() => {
+    setSelectedRollKeys((prev) => {
+      const valid = new Set(rollSuggestions.map((s) => s.key));
+      for (const key of [...initializedRollKeysRef.current]) {
+        if (!valid.has(key)) initializedRollKeysRef.current.delete(key);
+      }
+
+      const next = new Set<string>();
+      for (const key of prev) {
+        if (valid.has(key)) next.add(key);
+      }
+
+      const usedClose = new Set<string>();
+      const usedOpen = new Set<string>();
+      for (const s of rollSuggestions) {
+        if (!next.has(s.key)) continue;
+        usedClose.add(s.closeImportKey);
+        usedOpen.add(s.openImportKey);
+      }
+
+      for (const s of rollSuggestions) {
+        if (initializedRollKeysRef.current.has(s.key)) continue;
+        initializedRollKeysRef.current.add(s.key);
+        if (s.confidence !== "high") continue;
+        if (usedClose.has(s.closeImportKey) || usedOpen.has(s.openImportKey)) continue;
+        next.add(s.key);
+        usedClose.add(s.closeImportKey);
+        usedOpen.add(s.openImportKey);
+      }
+      return next;
+    });
+  }, [rollSuggestions]);
+
+  const toggleRoll = useCallback((candidate: ImportRollCandidate, checked: boolean) => {
+    setSelectedRollKeys((prev) => {
+      const next = new Set(prev);
+      if (!checked) {
+        next.delete(candidate.key);
+        return next;
+      }
+      for (const s of rollSuggestions) {
+        if (s.key === candidate.key) continue;
+        if (
+          s.closeImportKey === candidate.closeImportKey ||
+          s.openImportKey === candidate.openImportKey ||
+          s.closeImportKey === candidate.openImportKey ||
+          s.openImportKey === candidate.closeImportKey
+        ) {
+          next.delete(s.key);
+        }
+      }
+      next.add(candidate.key);
+      return next;
+    });
+  }, [rollSuggestions]);
+
   const handleImport = useCallback(async () => {
-    const tradesToImport = getTradesToImport();
-    if (tradesToImport.length === 0) return;
+    if (tradesWithKeys.length === 0) return;
     setSubmitting(true);
     setMessage(null);
     try {
+      const rolls = rollSuggestions
+        .filter((s) => selectedRollKeys.has(s.key))
+        .map((s) => ({
+          closeImportKey: s.closeImportKey,
+          openImportKey: s.openImportKey,
+          quantity: s.quantity,
+        }));
+
       const res = await fetch("/api/trades/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          trades: tradesToImport,
+          trades: tradesWithKeys,
           importId: `import-${Date.now()}`,
+          rolls,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -112,10 +229,20 @@ export function CsvImport() {
         const msg = [data.error, data.detail].filter(Boolean).join(" — ") || "Import failed";
         throw new Error(msg);
       }
-      setMessage({ type: "ok", text: `Imported ${data.imported ?? tradesToImport.length} trades.` });
+      const linked = Number(data.rollsLinked ?? 0);
+      const imported = data.imported ?? tradesWithKeys.length;
+      setMessage({
+        type: "ok",
+        text:
+          linked > 0
+            ? `Imported ${imported} trades. Linked ${linked} roll${linked === 1 ? "" : "s"}.`
+            : `Imported ${imported} trades.`,
+      });
       setPreview(null);
       setPreviewRows(null);
       setSelectedIndices(new Set());
+      setSelectedRollKeys(new Set());
+      initializedRollKeysRef.current = new Set();
       setFile(null);
       setRows([]);
       setHeaders([]);
@@ -125,7 +252,7 @@ export function CsvImport() {
     } finally {
       setSubmitting(false);
     }
-  }, [getTradesToImport, router]);
+  }, [tradesWithKeys, rollSuggestions, selectedRollKeys, router]);
 
   const hasMapping =
     preset.id === "fidelity" ||
@@ -235,7 +362,7 @@ export function CsvImport() {
           {preview && preview.length > 0 && (
             <>
               <p className="mt-4 text-slate-400">
-                {previewRows?.length ?? 0} preview row(s) · {selectedIndices.size} selected → {getTradesToImport().length} trade(s) to import
+                {previewRows?.length ?? 0} preview row(s) · {selectedIndices.size} selected → {tradesWithKeys.length} trade(s) to import
               </p>
               <div className="mt-2 max-h-80 overflow-auto rounded border border-slate-700">
                 <table className="w-full text-left text-xs">
@@ -366,13 +493,106 @@ export function CsvImport() {
                   </tbody>
                 </table>
               </div>
+
+              {rollSuggestions.length > 0 && (
+                <div className="mt-6 space-y-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-white">Suggested rolls</h3>
+                    <p className="text-sm text-slate-400">
+                      Same-day close + open in this import. High confidence is checked by default — uncheck any you do not want linked.
+                    </p>
+                  </div>
+                  <div className="overflow-x-auto rounded border border-slate-700">
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-slate-700 bg-slate-800 text-slate-400">
+                        <tr>
+                          <th className="px-2 py-1.5">Link</th>
+                          <th className="px-2 py-1.5">Date</th>
+                          <th className="px-2 py-1.5">Ticker</th>
+                          <th className="px-2 py-1.5">Close → Open</th>
+                          <th className="px-2 py-1.5">Qty</th>
+                          <th className="px-2 py-1.5">Net</th>
+                          <th className="px-2 py-1.5">Confidence</th>
+                          <th className="px-2 py-1.5">Note</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700">
+                        {rollSuggestions.map((s) => {
+                          const checked = selectedRollKeys.has(s.key);
+                          const conflicted =
+                            !checked &&
+                            rollSuggestions.some(
+                              (o) =>
+                                selectedRollKeys.has(o.key) &&
+                                (o.closeImportKey === s.closeImportKey ||
+                                  o.openImportKey === s.openImportKey ||
+                                  o.closeImportKey === s.openImportKey ||
+                                  o.openImportKey === s.closeImportKey)
+                            );
+                          return (
+                            <tr key={s.key} className="align-top hover:bg-slate-800/40">
+                              <td className="px-2 py-1.5">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={conflicted}
+                                  onChange={(e) => toggleRoll(s, e.target.checked)}
+                                  className="rounded border-slate-500 disabled:opacity-40"
+                                  title={conflicted ? "Conflicts with another selected roll" : undefined}
+                                />
+                              </td>
+                              <td className="px-2 py-1.5 text-slate-300">{s.tradeDate}</td>
+                              <td className="px-2 py-1.5 font-medium text-white">{s.ticker}</td>
+                              <td className="px-2 py-1.5 text-slate-300">
+                                <div>{legLabel(s.closeTrade)}</div>
+                                <div className="text-slate-500">→ {legLabel(s.openTrade)}</div>
+                              </td>
+                              <td className="px-2 py-1.5 text-slate-300">{s.quantity}</td>
+                              <td className={`px-2 py-1.5 font-medium ${s.pl.pl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                {money(s.pl.pl)}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <span
+                                  className={`rounded px-1.5 py-0.5 ${
+                                    s.confidence === "high"
+                                      ? "bg-green-900/40 text-green-300"
+                                      : "bg-amber-900/40 text-amber-300"
+                                  }`}
+                                >
+                                  {s.confidence}
+                                </span>
+                              </td>
+                              <td className="px-2 py-1.5 text-slate-400">
+                                {s.continuesExistingChain ? (
+                                  <span className="text-sky-300">Continues existing chain · {s.reason}</span>
+                                ) : (
+                                  s.reason
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {selectedRollKeys.size} of {rollSuggestions.length} suggestion
+                    {rollSuggestions.length === 1 ? "" : "s"} selected to link on import.
+                  </p>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={submitting || selectedIndices.size === 0}
+                disabled={submitting || tradesWithKeys.length === 0}
                 className="mt-4 rounded bg-sky-600 px-4 py-2 font-medium text-white hover:bg-sky-500 disabled:opacity-50"
               >
-                {submitting ? "Importing…" : `Import ${getTradesToImport().length} selected trade(s)`}
+                {submitting
+                  ? "Importing…"
+                  : selectedRollKeys.size > 0
+                    ? `Import ${tradesWithKeys.length} trade(s) · link ${selectedRollKeys.size} roll(s)`
+                    : `Import ${tradesWithKeys.length} selected trade(s)`}
               </button>
             </>
           )}

@@ -3,7 +3,9 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import {
   buildConfirmedRolls,
+  buildRollChains,
   detectHistoricalRollCandidates,
+  getOpenChainTips,
   validateRollPair,
   type TradeForRoll,
 } from "@/lib/rolls";
@@ -50,10 +52,13 @@ export async function GET() {
     const tradeRows = trades.map(toTradeForRoll);
     const candidates = detectHistoricalRollCandidates(tradeRows, links);
     const confirmed = buildConfirmedRolls(tradeRows, links);
+    const chains = buildRollChains(confirmed, tradeRows);
+    const openTips = getOpenChainTips(chains);
 
     return NextResponse.json({
       candidates,
       confirmed,
+      openTips,
       stats: {
         tradeCount: trades.length,
         candidateCount: candidates.length,
