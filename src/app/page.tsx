@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { getOpenPositions, getClosedPositions, getClosedPositionsWithDates } from "@/lib/open-positions";
+import { getOpenPositions, getClosedPositionsWithDates } from "@/lib/open-positions";
 import { getActionLabels } from "@/lib/action-labels";
 import { toTrade } from "@/types/trade";
+import { buildEarningsPositions } from "@/lib/earnings-positions";
+import { buildConfirmedRolls, buildRollChains, type TradeForRoll } from "@/lib/rolls";
 import { SummaryCards } from "@/components/SummaryCards";
 import { TradeTable } from "@/components/TradeTable";
 import { OpenPositionsPreview } from "@/components/OpenPositionsPreview";
@@ -15,15 +17,17 @@ const yearStart = `${thisYear}-01-01`;
 const yearEnd = `${thisYear}-12-31`;
 
 export default async function HomePage() {
-  const allTrades = await prisma.trade.findMany({
-    orderBy: { tradeDate: "desc" },
-  });
+  const [allTrades, rollLinks] = await Promise.all([
+    prisma.trade.findMany({
+      orderBy: { tradeDate: "desc" },
+    }),
+    prisma.rollLink.findMany({ orderBy: { createdAt: "asc" } }),
+  ]);
 
   const tradesThisYear = allTrades.filter(
     (t) => t.tradeDate >= yearStart && t.tradeDate <= yearEnd
   );
   const tradesForSummary = tradesThisYear.slice(0, 50).map(toTrade);
-  const tradesForSummaryCount = tradesThisYear.map(toTrade);
 
   const tradesForPositions = allTrades.filter((t) => t.isOrphanClose !== true);
 
@@ -56,6 +60,27 @@ export default async function HomePage() {
   );
   const totalClosedProfit = closedPositions.reduce((sum, p) => sum + p.profit, 0);
 
+  const rollTrades: TradeForRoll[] = allTrades.map((t) => ({
+    id: t.id,
+    ticker: t.ticker,
+    optionType: t.optionType,
+    strike: t.strike,
+    expiry: t.expiry,
+    action: t.action,
+    quantity: t.quantity,
+    pricePerContract: t.pricePerContract,
+    tradeDate: t.tradeDate,
+    fees: t.fees,
+    closesTradeId: t.closesTradeId,
+    isOrphanClose: t.isOrphanClose,
+    notes: t.notes,
+  }));
+  const rollChains = buildRollChains(buildConfirmedRolls(rollTrades, rollLinks), rollTrades);
+  const chainEarningsYear = buildEarningsPositions(closedPositionsAll, rollChains, "chain").filter(
+    (p) => p.closedAt >= yearStart && p.closedAt <= yearEnd
+  );
+  const chainPlAfterFees = chainEarningsYear.reduce((sum, p) => sum + p.profit, 0);
+
   const actionLabels = getActionLabels(
     allTrades.map((t) => ({
       id: t.id,
@@ -76,9 +101,9 @@ export default async function HomePage() {
         <p className="mt-1 text-slate-400">Options trading activity this year ({thisYear}).</p>
       </div>
       <SummaryCards
-        trades={tradesForSummaryCount}
-        totalRealizedPL={totalClosedProfit}
-        allTradesForFees={tradesForSummaryCount}
+        chainPlAfterFees={chainPlAfterFees}
+        positionsTraded={chainEarningsYear.length}
+        year={thisYear}
       />
 
       <div className="flex gap-4">
