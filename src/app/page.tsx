@@ -129,7 +129,11 @@ export default async function HomePage() {
             View all →
           </Link>
         </div>
-        <ClosedPositionsPreview positions={closedPositions} totalProfit={totalClosedProfit} />
+        <ClosedPositionsPreview
+          positions={closedPositions}
+          totalProfit={totalClosedProfit}
+          viewAllHref={`/closed-positions?start=${yearStart}&end=${yearEnd}`}
+        />
       </div>
 
       <div>
