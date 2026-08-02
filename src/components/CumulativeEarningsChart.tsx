@@ -20,6 +20,28 @@ function parseDay(date: string): number {
   return new Date(date + "T12:00:00").getTime();
 }
 
+/** Nice round tick values covering [min, max]. */
+function niceTicks(min: number, max: number, targetCount = 5): number[] {
+  const lo = Math.min(min, max, 0);
+  const hi = Math.max(min, max, 0);
+  const span = Math.max(hi - lo, 1);
+  const rawStep = span / Math.max(targetCount - 1, 1);
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const norm = rawStep / mag;
+  const step = (norm >= 5 ? 5 : norm >= 2 ? 2 : 1) * mag;
+  const start = Math.floor(lo / step) * step;
+  const end = Math.ceil(hi / step) * step;
+  const ticks: number[] = [];
+  for (let v = start; v <= end + step * 0.5; v += step) {
+    ticks.push(Math.round(v * 1e6) / 1e6);
+  }
+  if (!ticks.includes(0) && start < 0 && end > 0) {
+    ticks.push(0);
+    ticks.sort((a, b) => a - b);
+  }
+  return ticks;
+}
+
 export function CumulativeEarningsChart({ points, year }: Props) {
   if (points.length < 2) {
     return (
@@ -39,11 +61,9 @@ export function CumulativeEarningsChart({ points, year }: Props) {
   const ys = points.map((p) => p.cumulative);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
-  const minY = Math.min(0, ...ys);
-  const maxY = Math.max(0, ...ys);
-  const yPad = Math.max((maxY - minY) * 0.08, 1);
-  const y0 = minY - yPad;
-  const y1 = maxY + yPad;
+  const yTickVals = niceTicks(Math.min(...ys), Math.max(...ys));
+  const y0 = yTickVals[0];
+  const y1 = yTickVals[yTickVals.length - 1];
   const xSpan = Math.max(maxX - minX, 1);
   const ySpan = Math.max(y1 - y0, 1);
 
@@ -63,9 +83,6 @@ export function CumulativeEarningsChart({ points, year }: Props) {
 
   const zeroY = yOf(0);
   const last = points[points.length - 1];
-
-  const yTicks = 4;
-  const yTickVals = Array.from({ length: yTicks + 1 }, (_, i) => y0 + (ySpan * i) / yTicks);
 
   const monthLabels: { x: number; label: string }[] = [];
   const start = new Date(points[0].date + "T12:00:00");
