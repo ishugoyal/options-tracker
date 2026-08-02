@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getOpenPositions, getClosedPositionsWithDates } from "@/lib/open-positions";
-import { getActionLabels } from "@/lib/action-labels";
-import { toTrade } from "@/types/trade";
 import { buildEarningsPositions } from "@/lib/earnings-positions";
+import { buildCumulativeEarningsSeries } from "@/lib/cumulative-earnings";
 import { buildConfirmedRolls, buildRollChains, type TradeForRoll } from "@/lib/rolls";
 import { SummaryCards } from "@/components/SummaryCards";
-import { TradeTable } from "@/components/TradeTable";
+import { CumulativeEarningsChart } from "@/components/CumulativeEarningsChart";
 import { OpenPositionsPreview } from "@/components/OpenPositionsPreview";
 import { ClosedPositionsPreview } from "@/components/ClosedPositionsPreview";
 
@@ -15,6 +14,8 @@ export const dynamic = "force-dynamic";
 const thisYear = new Date().getFullYear();
 const yearStart = `${thisYear}-01-01`;
 const yearEnd = `${thisYear}-12-31`;
+const today = new Date().toISOString().slice(0, 10);
+const asOf = today < yearEnd ? today : yearEnd;
 
 export default async function HomePage() {
   const [allTrades, rollLinks] = await Promise.all([
@@ -23,11 +24,6 @@ export default async function HomePage() {
     }),
     prisma.rollLink.findMany({ orderBy: { createdAt: "asc" } }),
   ]);
-
-  const tradesThisYear = allTrades.filter(
-    (t) => t.tradeDate >= yearStart && t.tradeDate <= yearEnd
-  );
-  const tradesForSummary = tradesThisYear.slice(0, 50).map(toTrade);
 
   const tradesForPositions = allTrades.filter((t) => t.isOrphanClose !== true);
 
@@ -80,19 +76,7 @@ export default async function HomePage() {
     (p) => p.closedAt >= yearStart && p.closedAt <= yearEnd
   );
   const chainPlAfterFees = chainEarningsYear.reduce((sum, p) => sum + p.profit, 0);
-
-  const actionLabels = getActionLabels(
-    allTrades.map((t) => ({
-      id: t.id,
-      ticker: t.ticker,
-      optionType: t.optionType,
-      strike: t.strike,
-      expiry: t.expiry,
-      action: t.action,
-      quantity: t.quantity,
-      tradeDate: t.tradeDate,
-    }))
-  );
+  const cumulativePoints = buildCumulativeEarningsSeries(chainEarningsYear, yearStart, asOf);
 
   return (
     <div className="space-y-8">
@@ -105,6 +89,8 @@ export default async function HomePage() {
         positionsTraded={chainEarningsYear.length}
         year={thisYear}
       />
+
+      <CumulativeEarningsChart points={cumulativePoints} year={thisYear} />
 
       <div className="flex gap-4">
         <Link href="/reports" className="rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-2 text-sm text-sky-400 hover:bg-slate-800">
@@ -134,16 +120,6 @@ export default async function HomePage() {
           totalProfit={totalClosedProfit}
           viewAllHref={`/closed-positions?start=${yearStart}&end=${yearEnd}`}
         />
-      </div>
-
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white">Recent trades</h2>
-          <Link href="/trades" className="text-sky-400 hover:underline">
-            View all →
-          </Link>
-        </div>
-        <TradeTable trades={tradesForSummary} actionLabels={actionLabels} />
       </div>
     </div>
   );
