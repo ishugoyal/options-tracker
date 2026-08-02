@@ -1,14 +1,21 @@
-import Link from "next/link";
 import type { ClosedPosition } from "@/lib/open-positions";
 
 interface ClosedPositionsPreviewProps {
   positions: ClosedPosition[];
   totalProfit: number;
   maxRows?: number;
+  /** Opens in a new tab when "+N more" is clicked. */
+  viewAllHref?: string;
 }
 
-export function ClosedPositionsPreview({ positions, totalProfit, maxRows = 5 }: ClosedPositionsPreviewProps) {
+export function ClosedPositionsPreview({
+  positions,
+  totalProfit,
+  maxRows = 5,
+  viewAllHref = "/closed-positions",
+}: ClosedPositionsPreviewProps) {
   const show = positions.slice(0, maxRows);
+  const remaining = positions.length - maxRows;
 
   if (positions.length === 0) {
     return (
@@ -52,8 +59,15 @@ export function ClosedPositionsPreview({ positions, totalProfit, maxRows = 5 }: 
           </tbody>
         </table>
       </div>
-      {positions.length > maxRows && (
-        <p className="text-slate-500 text-xs">+{positions.length - maxRows} more</p>
+      {remaining > 0 && (
+        <a
+          href={viewAllHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block text-sky-400 text-xs hover:underline"
+        >
+          +{remaining} more
+        </a>
       )}
     </div>
   );
