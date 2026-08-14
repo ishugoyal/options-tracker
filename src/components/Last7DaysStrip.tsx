@@ -1,3 +1,8 @@
+"use client";
+
+import { useState } from "react";
+import type { PeriodActivity } from "@/lib/dashboard-period";
+
 function fmtMoney(n: number): string {
   return (
     (n >= 0 ? "+" : "-") +
@@ -23,57 +28,58 @@ function contractLine(p: {
   return `${p.ticker} ${p.optionType.toUpperCase()} $${p.strike} · ${p.expiry} ×${p.quantity}`;
 }
 
-type ClosedItem = {
-  ticker: string;
-  optionType: string;
-  strike: number;
-  expiry: string;
-  quantity: number;
-  profit: number;
-  date: string;
-};
-
-type OpenedItem = {
-  id: string;
-  ticker: string;
-  optionType: string;
-  strike: number;
-  expiry: string;
-  quantity: number;
-  premium: number;
-  date: string;
-};
+type PeriodKey = "7d" | "30d";
 
 type Props = {
-  start: string;
-  end: string;
-  realizedPl: number;
-  closedCount: number;
-  newPremium: number;
-  openedCount: number;
-  closedItems: ClosedItem[];
-  openedItems: OpenedItem[];
+  periods: Record<PeriodKey, PeriodActivity>;
 };
 
-export function Last7DaysStrip({
-  start,
-  end,
-  realizedPl,
-  closedCount,
-  newPremium,
-  openedCount,
-  closedItems,
-  openedItems,
-}: Props) {
+const LABELS: Record<PeriodKey, string> = {
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+};
+
+export function Last7DaysStrip({ periods }: Props) {
+  const [period, setPeriod] = useState<PeriodKey>("7d");
+  const data = periods[period];
+  const {
+    start,
+    end,
+    realizedPl,
+    closedCount,
+    newPremium,
+    openedCount,
+    closedItems,
+    openedItems,
+  } = data;
   const eventCount = closedCount + openedCount;
 
   return (
     <div className="space-y-4 rounded-lg border border-slate-700 bg-slate-800/30 p-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-semibold text-white">Last 7 days</h2>
-        <p className="text-sm text-slate-400">
-          {fmtShortDate(start)} – {fmtShortDate(end)} · {eventCount} event{eventCount !== 1 ? "s" : ""}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-baseline gap-3">
+          <h2 className="text-lg font-semibold text-white">{LABELS[period]}</h2>
+          <p className="text-sm text-slate-400">
+            {fmtShortDate(start)} – {fmtShortDate(end)} · {eventCount} event
+            {eventCount !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <div className="flex rounded-lg border border-slate-600 bg-slate-900/50 p-0.5 text-sm">
+          {(["7d", "30d"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setPeriod(key)}
+              className={`rounded-md px-3 py-1 font-medium transition-colors ${
+                period === key
+                  ? "bg-slate-700 text-white"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {key.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

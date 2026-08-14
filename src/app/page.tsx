@@ -6,7 +6,7 @@ import { buildCumulativeEarningsSeries } from "@/lib/cumulative-earnings";
 import {
   buildPeriodActivity,
   buildPlCalendar,
-  last7DayRange,
+  rollingDayRange,
   type DashboardTrade,
 } from "@/lib/dashboard-period";
 import { buildConfirmedRolls, buildRollChains, type TradeForRoll } from "@/lib/rolls";
@@ -24,7 +24,8 @@ const yearStart = `${thisYear}-01-01`;
 const yearEnd = `${thisYear}-12-31`;
 const today = new Date().toISOString().slice(0, 10);
 const asOf = today < yearEnd ? today : yearEnd;
-const seven = last7DayRange(today);
+const range7 = rollingDayRange(today, 7);
+const range30 = rollingDayRange(today, 30);
 
 export default async function HomePage() {
   const [allTrades, rollLinks] = await Promise.all([
@@ -101,7 +102,8 @@ export default async function HomePage() {
     fees: t.fees,
   }));
 
-  const last7 = buildPeriodActivity(chainEarningsAll, dashboardTrades, seven.start, seven.end);
+  const last7 = buildPeriodActivity(chainEarningsAll, dashboardTrades, range7.start, range7.end);
+  const last30 = buildPeriodActivity(chainEarningsAll, dashboardTrades, range30.start, range30.end);
   const calendar = buildPlCalendar(
     chainEarningsAll,
     dashboardTrades,
@@ -122,14 +124,10 @@ export default async function HomePage() {
       />
 
       <Last7DaysStrip
-        start={last7.start}
-        end={last7.end}
-        realizedPl={last7.realizedPl}
-        closedCount={last7.closedCount}
-        newPremium={last7.newPremium}
-        openedCount={last7.openedCount}
-        closedItems={last7.closedItems}
-        openedItems={last7.openedItems}
+        periods={{
+          "7d": last7,
+          "30d": last30,
+        }}
       />
 
       <CumulativeEarningsChart points={cumulativePoints} year={thisYear} />
