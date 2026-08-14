@@ -3,9 +3,17 @@ import { prisma } from "@/lib/db";
 import { getOpenPositions, getClosedPositionsWithDates } from "@/lib/open-positions";
 import { buildEarningsPositions } from "@/lib/earnings-positions";
 import { buildCumulativeEarningsSeries } from "@/lib/cumulative-earnings";
+import {
+  buildPeriodActivity,
+  buildPlCalendar,
+  last7DayRange,
+  type DashboardTrade,
+} from "@/lib/dashboard-period";
 import { buildConfirmedRolls, buildRollChains, type TradeForRoll } from "@/lib/rolls";
 import { SummaryCards } from "@/components/SummaryCards";
 import { CumulativeEarningsChart } from "@/components/CumulativeEarningsChart";
+import { Last7DaysStrip } from "@/components/Last7DaysStrip";
+import { PlCalendar } from "@/components/PlCalendar";
 import { OpenPositionsPreview } from "@/components/OpenPositionsPreview";
 import { ClosedPositionsPreview } from "@/components/ClosedPositionsPreview";
 
@@ -16,6 +24,7 @@ const yearStart = `${thisYear}-01-01`;
 const yearEnd = `${thisYear}-12-31`;
 const today = new Date().toISOString().slice(0, 10);
 const asOf = today < yearEnd ? today : yearEnd;
+const seven = last7DayRange(today);
 
 export default async function HomePage() {
   const [allTrades, rollLinks] = await Promise.all([
@@ -72,11 +81,33 @@ export default async function HomePage() {
     notes: t.notes,
   }));
   const rollChains = buildRollChains(buildConfirmedRolls(rollTrades, rollLinks), rollTrades);
-  const chainEarningsYear = buildEarningsPositions(closedPositionsAll, rollChains, "chain").filter(
+  const chainEarningsAll = buildEarningsPositions(closedPositionsAll, rollChains, "chain");
+  const chainEarningsYear = chainEarningsAll.filter(
     (p) => p.closedAt >= yearStart && p.closedAt <= yearEnd
   );
   const chainPlAfterFees = chainEarningsYear.reduce((sum, p) => sum + p.profit, 0);
   const cumulativePoints = buildCumulativeEarningsSeries(chainEarningsYear, yearStart, asOf);
+
+  const dashboardTrades: DashboardTrade[] = allTrades.map((t) => ({
+    id: t.id,
+    ticker: t.ticker,
+    optionType: t.optionType,
+    strike: t.strike,
+    expiry: t.expiry,
+    action: t.action,
+    quantity: t.quantity,
+    tradeDate: t.tradeDate,
+    pricePerContract: t.pricePerContract,
+    fees: t.fees,
+  }));
+
+  const last7 = buildPeriodActivity(chainEarningsAll, dashboardTrades, seven.start, seven.end);
+  const calendar = buildPlCalendar(
+    chainEarningsAll,
+    dashboardTrades,
+    thisYear,
+    new Date().getMonth() + 1
+  );
 
   return (
     <div className="space-y-8">
@@ -90,7 +121,20 @@ export default async function HomePage() {
         year={thisYear}
       />
 
+      <Last7DaysStrip
+        start={last7.start}
+        end={last7.end}
+        realizedPl={last7.realizedPl}
+        closedCount={last7.closedCount}
+        newPremium={last7.newPremium}
+        openedCount={last7.openedCount}
+        closedItems={last7.closedItems}
+        openedItems={last7.openedItems}
+      />
+
       <CumulativeEarningsChart points={cumulativePoints} year={thisYear} />
+
+      <PlCalendar model={calendar} />
 
       <div className="flex gap-4">
         <Link href="/reports" className="rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-2 text-sm text-sky-400 hover:bg-slate-800">
