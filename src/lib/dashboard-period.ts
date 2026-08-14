@@ -82,6 +82,11 @@ export function last7DayRange(today: string): { start: string; end: string } {
   return { start: addDays(today, -6), end: today };
 }
 
+/** Rolling window of `days` calendar days ending today (inclusive). */
+export function rollingDayRange(today: string, days: number): { start: string; end: string } {
+  return { start: addDays(today, -(days - 1)), end: today };
+}
+
 function inRange(date: string, start: string, end: string): boolean {
   return date >= start && date <= end;
 }
