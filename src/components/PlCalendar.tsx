@@ -23,7 +23,7 @@ function fmtMoneyExact(n: number): string {
   );
 }
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
 type Props = {
   chainEarnings: ClosedPositionWithDate[];
@@ -53,33 +53,33 @@ export function PlCalendar({ chainEarnings, trades, initialYear, initialMonth }:
   return (
     <div className="space-y-3 rounded-lg border border-slate-700 bg-slate-800/30 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-lg font-semibold text-white">P/L calendar</h2>
-          <div className="flex items-center gap-1">
+          <div className="inline-flex items-center rounded-md border border-slate-600 bg-slate-900/50 text-sm">
             <button
               type="button"
               onClick={() => go(-1)}
-              className="rounded border border-slate-600 px-2 py-1 text-sm text-slate-300 hover:bg-slate-800"
+              className="px-1.5 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
               aria-label="Previous month"
             >
-              ←
+              ‹
             </button>
-            <span className="min-w-[9.5rem] text-center text-sm font-medium text-white">
+            <span className="px-1.5 py-1 font-medium tabular-nums text-white">
               {model.monthLabel}
             </span>
             <button
               type="button"
               onClick={() => go(1)}
-              className="rounded border border-slate-600 px-2 py-1 text-sm text-slate-300 hover:bg-slate-800"
+              className="px-1.5 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
               aria-label="Next month"
             >
-              →
+              ›
             </button>
             {!isCurrent && (
               <button
                 type="button"
                 onClick={() => setCursor({ year: initialYear, month: initialMonth })}
-                className="ml-1 rounded border border-slate-600 px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                className="border-l border-slate-600 px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
               >
                 Today
               </button>
@@ -92,8 +92,8 @@ export function PlCalendar({ chainEarnings, trades, initialYear, initialMonth }:
       </div>
 
       <div className="overflow-x-auto">
-        <div className="min-w-[640px]">
-          <div className="mb-1 grid grid-cols-[repeat(7,minmax(0,1fr))_4.5rem] gap-1 text-center text-xs text-slate-500">
+        <div className="min-w-[520px]">
+          <div className="mb-1 grid grid-cols-[repeat(5,minmax(0,1fr))_4.5rem] gap-1 text-center text-xs text-slate-500">
             {WEEKDAYS.map((d) => (
               <div key={d} className="py-1">
                 {d}
@@ -106,7 +106,7 @@ export function PlCalendar({ chainEarnings, trades, initialYear, initialMonth }:
             {model.weeks.map((week) => (
               <div
                 key={week.days[0]?.date ?? "week"}
-                className="grid grid-cols-[repeat(7,minmax(0,1fr))_4.5rem] gap-1"
+                className="grid grid-cols-[repeat(5,minmax(0,1fr))_4.5rem] gap-1"
               >
                 {week.days.map((day) => {
                   const hasActivity = day.closedCount > 0 || day.openedCount > 0;
