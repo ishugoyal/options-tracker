@@ -160,8 +160,8 @@ export function buildPeriodActivity(
 }
 
 /**
- * Current (or given) calendar month P/L calendar: daily chain realized + open counts,
- * Mon–Sun weeks with week totals.
+ * Calendar month P/L: Mon–Fri day cells (weekends omitted from the grid),
+ * with week totals still including Sat/Sun realized in that week.
  */
 export function buildPlCalendar(
   chainEarnings: ClosedPositionWithDate[],
@@ -191,38 +191,42 @@ export function buildPlCalendar(
     openedByDay.set(t.tradeDate, (openedByDay.get(t.tradeDate) ?? 0) + 1);
   }
 
-  const gridStart = weekStartMonday(monthStart);
-  // End on Sunday of the week containing monthEnd
-  const monthEndDate = new Date(monthEnd + "T12:00:00");
-  const endDow = monthEndDate.getDay(); // 0 Sun
-  const daysToSunday = endDow === 0 ? 0 : 7 - endDow;
-  const gridEnd = addDays(monthEnd, daysToSunday);
-
-  const days: CalendarDay[] = [];
-  for (let d = gridStart; d <= gridEnd; d = addDays(d, 1)) {
+  function dayStats(d: string): CalendarDay {
     const stats = realizedByDay.get(d);
-    days.push({
+    return {
       date: d,
       dayOfMonth: Number(d.slice(8, 10)),
       inMonth: d >= monthStart && d <= monthEnd,
       realized: stats?.profit ?? 0,
       closedCount: stats?.count ?? 0,
       openedCount: openedByDay.get(d) ?? 0,
-    });
+    };
   }
+
+  function isWeekday(dateStr: string): boolean {
+    const dow = new Date(dateStr + "T12:00:00").getDay();
+    return dow >= 1 && dow <= 5;
+  }
+
+  const gridStart = weekStartMonday(monthStart);
+  const monthEndDate = new Date(monthEnd + "T12:00:00");
+  const endDow = monthEndDate.getDay(); // 0 Sun
+  const daysToSunday = endDow === 0 ? 0 : 7 - endDow;
+  const gridEnd = addDays(monthEnd, daysToSunday);
 
   const weeks: CalendarWeek[] = [];
-  for (let i = 0; i < days.length; i += 7) {
-    const weekDays = days.slice(i, i + 7);
+  for (let weekStart = gridStart; weekStart <= gridEnd; weekStart = addDays(weekStart, 7)) {
+    const fullWeek: CalendarDay[] = [];
+    for (let i = 0; i < 7; i++) {
+      fullWeek.push(dayStats(addDays(weekStart, i)));
+    }
     weeks.push({
-      days: weekDays,
-      weekTotal: weekDays.reduce((sum, day) => sum + (day.inMonth ? day.realized : 0), 0),
+      days: fullWeek.filter((d) => isWeekday(d.date)),
+      weekTotal: fullWeek.reduce((sum, day) => sum + (day.inMonth ? day.realized : 0), 0),
     });
   }
 
-  const monthTotal = days
-    .filter((d) => d.inMonth)
-    .reduce((sum, d) => sum + d.realized, 0);
+  const monthTotal = Array.from(realizedByDay.values()).reduce((sum, s) => sum + s.profit, 0);
 
   const monthLabel = new Date(year, month - 1, 1).toLocaleString("en-US", {
     month: "long",
