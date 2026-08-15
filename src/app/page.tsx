@@ -5,7 +5,6 @@ import { buildEarningsPositions } from "@/lib/earnings-positions";
 import { buildCumulativeEarningsSeries } from "@/lib/cumulative-earnings";
 import {
   buildPeriodActivity,
-  buildPlCalendar,
   rollingDayRange,
   type DashboardTrade,
 } from "@/lib/dashboard-period";
@@ -104,12 +103,7 @@ export default async function HomePage() {
 
   const last7 = buildPeriodActivity(chainEarningsAll, dashboardTrades, range7.start, range7.end);
   const last30 = buildPeriodActivity(chainEarningsAll, dashboardTrades, range30.start, range30.end);
-  const calendar = buildPlCalendar(
-    chainEarningsAll,
-    dashboardTrades,
-    thisYear,
-    new Date().getMonth() + 1
-  );
+  const calendarMonth = new Date().getMonth() + 1;
 
   return (
     <div className="space-y-8">
@@ -132,7 +126,12 @@ export default async function HomePage() {
 
       <CumulativeEarningsChart points={cumulativePoints} year={thisYear} />
 
-      <PlCalendar model={calendar} />
+      <PlCalendar
+        chainEarnings={chainEarningsAll}
+        trades={dashboardTrades}
+        initialYear={thisYear}
+        initialMonth={calendarMonth}
+      />
 
       <div className="flex gap-4">
         <Link href="/reports" className="rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-2 text-sm text-sky-400 hover:bg-slate-800">
