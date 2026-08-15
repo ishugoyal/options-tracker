@@ -1,4 +1,11 @@
-import type { PlCalendarModel } from "@/lib/dashboard-period";
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  buildPlCalendar,
+  type DashboardTrade,
+} from "@/lib/dashboard-period";
+import type { ClosedPositionWithDate } from "@/lib/open-positions";
 
 function fmtMoney(n: number): string {
   return (
@@ -19,16 +26,68 @@ function fmtMoneyExact(n: number): string {
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type Props = {
-  model: PlCalendarModel;
+  chainEarnings: ClosedPositionWithDate[];
+  trades: DashboardTrade[];
+  initialYear: number;
+  initialMonth: number; // 1-12
 };
 
-export function PlCalendar({ model }: Props) {
+function shiftMonth(year: number, month: number, delta: number): { year: number; month: number } {
+  const d = new Date(year, month - 1 + delta, 1);
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+}
+
+export function PlCalendar({ chainEarnings, trades, initialYear, initialMonth }: Props) {
+  const [{ year, month }, setCursor] = useState({ year: initialYear, month: initialMonth });
+
+  const model = useMemo(
+    () => buildPlCalendar(chainEarnings, trades, year, month),
+    [chainEarnings, trades, year, month]
+  );
+
+  const go = (delta: number) => setCursor((c) => shiftMonth(c.year, c.month, delta));
+
+  const isCurrent =
+    year === initialYear && month === initialMonth;
+
   return (
     <div className="space-y-3 rounded-lg border border-slate-700 bg-slate-800/30 p-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-semibold text-white">P/L calendar</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold text-white">P/L calendar</h2>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => go(-1)}
+              className="rounded border border-slate-600 px-2 py-1 text-sm text-slate-300 hover:bg-slate-800"
+              aria-label="Previous month"
+            >
+              ←
+            </button>
+            <span className="min-w-[9.5rem] text-center text-sm font-medium text-white">
+              {model.monthLabel}
+            </span>
+            <button
+              type="button"
+              onClick={() => go(1)}
+              className="rounded border border-slate-600 px-2 py-1 text-sm text-slate-300 hover:bg-slate-800"
+              aria-label="Next month"
+            >
+              →
+            </button>
+            {!isCurrent && (
+              <button
+                type="button"
+                onClick={() => setCursor({ year: initialYear, month: initialMonth })}
+                className="ml-1 rounded border border-slate-600 px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              >
+                Today
+              </button>
+            )}
+          </div>
+        </div>
         <p className={`text-sm font-medium ${model.monthTotal >= 0 ? "text-green-400" : "text-red-400"}`}>
-          {model.monthLabel} · {fmtMoneyExact(model.monthTotal)}
+          {fmtMoneyExact(model.monthTotal)}
         </p>
       </div>
 
