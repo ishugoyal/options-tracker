@@ -27,20 +27,19 @@ function contractLine(p: {
   return `${p.ticker} ${p.optionType.toUpperCase()} $${p.strike} · ${p.expiry}`;
 }
 
-type PeriodKey = "7d" | "30d" | "60d";
+type PeriodKey = "30d" | "60d";
 
 type Props = {
   periods: Record<PeriodKey, PeriodActivity>;
 };
 
 const LABELS: Record<PeriodKey, string> = {
-  "7d": "Last 7 days",
   "30d": "Last 30 days",
   "60d": "Last 60 days",
 };
 
 export function Last7DaysStrip({ periods }: Props) {
-  const [period, setPeriod] = useState<PeriodKey>("7d");
+  const [period, setPeriod] = useState<PeriodKey>("30d");
   const data = periods[period];
   const {
     start,
@@ -66,7 +65,7 @@ export function Last7DaysStrip({ periods }: Props) {
           </p>
         </div>
         <div className="flex rounded-lg border border-slate-600 bg-slate-900/50 p-0.5 text-sm">
-          {(["7d", "30d", "60d"] as const).map((key) => (
+          {(["30d", "60d"] as const).map((key) => (
             <button
               key={key}
               type="button"

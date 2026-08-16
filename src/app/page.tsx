@@ -23,7 +23,6 @@ const yearStart = `${thisYear}-01-01`;
 const yearEnd = `${thisYear}-12-31`;
 const today = new Date().toISOString().slice(0, 10);
 const asOf = today < yearEnd ? today : yearEnd;
-const range7 = rollingDayRange(today, 7);
 const range30 = rollingDayRange(today, 30);
 const range60 = rollingDayRange(today, 60);
 
@@ -103,7 +102,6 @@ export default async function HomePage() {
   }));
 
   const yearActivity = buildPeriodActivity(chainEarningsAll, dashboardTrades, yearStart, asOf);
-  const last7 = buildPeriodActivity(chainEarningsAll, dashboardTrades, range7.start, range7.end);
   const last30 = buildPeriodActivity(chainEarningsAll, dashboardTrades, range30.start, range30.end);
   const last60 = buildPeriodActivity(chainEarningsAll, dashboardTrades, range60.start, range60.end);
   const calendarMonth = new Date().getMonth() + 1;
@@ -123,7 +121,6 @@ export default async function HomePage() {
 
       <Last7DaysStrip
         periods={{
-          "7d": last7,
           "30d": last30,
           "60d": last60,
         }}
