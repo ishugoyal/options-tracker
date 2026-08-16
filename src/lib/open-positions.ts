@@ -96,6 +96,8 @@ export interface ClosedPosition {
 
 export interface ClosedPositionWithDate extends ClosedPosition {
   closedAt: string; // YYYY-MM-DD — date when position was closed
+  /** YYYY-MM-DD — date of the opening lot (when available). */
+  openedAt?: string;
 }
 
 /** One open lot (FIFO queue entry). */
@@ -159,7 +161,7 @@ function getClosedPositionsFIFO<T extends TradeForClosed>(
             expiry,
             quantity: closeQty,
             profit,
-            ...(withDate && { closedAt: date }),
+            ...(withDate && { closedAt: date, openedAt: lot.tradeDate }),
           } as ClosedPosition & Partial<ClosedPositionWithDate>);
 
           remaining -= closeQty;
@@ -187,7 +189,7 @@ function getClosedPositionsFIFO<T extends TradeForClosed>(
             expiry,
             quantity: closeQty,
             profit,
-            ...(withDate && { closedAt: date }),
+            ...(withDate && { closedAt: date, openedAt: lot.tradeDate }),
           } as ClosedPosition & Partial<ClosedPositionWithDate>);
 
           remaining -= closeQty;

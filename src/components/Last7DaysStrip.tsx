@@ -51,6 +51,7 @@ export function Last7DaysStrip({ periods }: Props) {
     openedCount,
     closedItems,
     openedItems,
+    bestTrade,
   } = data;
   const eventCount = closedCount + openedCount;
 
@@ -82,7 +83,7 @@ export function Last7DaysStrip({ periods }: Props) {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-4">
           <p className="text-sm text-slate-400">Realized</p>
           <p className={`text-2xl font-bold ${realizedPl >= 0 ? "text-green-400" : "text-red-400"}`}>
@@ -98,6 +99,32 @@ export function Last7DaysStrip({ periods }: Props) {
           <p className="text-xs text-slate-500">
             {openedCount} sell to open{openedCount !== 1 ? "s" : ""}
           </p>
+        </div>
+        <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-4 sm:col-span-2 lg:col-span-1">
+          <p className="text-sm text-slate-400">Most profitable</p>
+          {bestTrade ? (
+            <>
+              <p
+                className={`text-2xl font-bold ${
+                  bestTrade.profitPerDay >= 0 ? "text-green-400" : "text-red-400"
+                }`}
+              >
+                {fmtMoney(bestTrade.profitPerDay)}
+                <span className="text-base font-medium text-slate-400">/day</span>
+              </p>
+              <p className="mt-1 text-xs text-slate-300">{contractLine(bestTrade)}</p>
+              <p className="text-xs text-slate-500">
+                {fmtMoney(bestTrade.profit)} over {bestTrade.daysHeld} day
+                {bestTrade.daysHeld !== 1 ? "s" : ""} · {fmtShortDate(bestTrade.openedAt)} →{" "}
+                {fmtShortDate(bestTrade.closedAt)}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-2xl font-bold text-slate-500">—</p>
+              <p className="text-xs text-slate-500">No closes with open dates in this window</p>
+            </>
+          )}
         </div>
       </div>
 
