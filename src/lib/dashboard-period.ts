@@ -14,6 +14,9 @@ export type ClosedActivityItem = {
   quantity: number;
   profit: number;
   date: string;
+  openedAt?: string;
+  daysHeld?: number;
+  profitPerDay?: number;
 };
 
 export type OpenedActivityItem = {
@@ -29,6 +32,19 @@ export type OpenedActivityItem = {
   label: string;
 };
 
+export type BestTradeByRate = {
+  ticker: string;
+  optionType: string;
+  strike: number;
+  expiry: string;
+  quantity: number;
+  profit: number;
+  openedAt: string;
+  closedAt: string;
+  daysHeld: number;
+  profitPerDay: number;
+};
+
 export type PeriodActivity = {
   start: string;
   end: string;
@@ -38,6 +54,7 @@ export type PeriodActivity = {
   openedCount: number;
   closedItems: ClosedActivityItem[];
   openedItems: OpenedActivityItem[];
+  bestTrade: BestTradeByRate | null;
 };
 
 export type CalendarDay = {
@@ -99,6 +116,14 @@ function isOpeningLabel(label: string): boolean {
   return label.includes("to open");
 }
 
+/** Inclusive calendar days from open to close: same day = 1, next day = 2. */
+export function daysHeldInclusive(openedAt: string, closedAt: string): number {
+  const a = new Date(openedAt + "T12:00:00").getTime();
+  const b = new Date(closedAt + "T12:00:00").getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return 1;
+  return Math.round((b - a) / 86_400_000) + 1;
+}
+
 /**
  * Build last-N-days (or any range) activity using chain-realization closes
  * and action-labeled opening sells for new premium.
@@ -113,15 +138,25 @@ export function buildPeriodActivity(
 
   const closedItems: ClosedActivityItem[] = chainEarnings
     .filter((p) => p.closedAt && inRange(p.closedAt, start, end))
-    .map((p) => ({
-      ticker: p.ticker,
-      optionType: p.optionType,
-      strike: p.strike,
-      expiry: p.expiry,
-      quantity: p.quantity,
-      profit: p.profit,
-      date: p.closedAt,
-    }))
+    .map((p) => {
+      const openedAt = p.openedAt;
+      const daysHeld =
+        openedAt && p.closedAt ? daysHeldInclusive(openedAt, p.closedAt) : undefined;
+      const profitPerDay =
+        daysHeld != null && daysHeld > 0 ? p.profit / daysHeld : undefined;
+      return {
+        ticker: p.ticker,
+        optionType: p.optionType,
+        strike: p.strike,
+        expiry: p.expiry,
+        quantity: p.quantity,
+        profit: p.profit,
+        date: p.closedAt,
+        openedAt,
+        daysHeld,
+        profitPerDay,
+      };
+    })
     .sort((a, b) => b.date.localeCompare(a.date) || a.ticker.localeCompare(b.ticker));
 
   const openedItems: OpenedActivityItem[] = [];
@@ -147,6 +182,25 @@ export function buildPeriodActivity(
   const realizedPl = closedItems.reduce((sum, p) => sum + p.profit, 0);
   const newPremium = openedItems.reduce((sum, p) => sum + p.premium, 0);
 
+  let bestTrade: BestTradeByRate | null = null;
+  for (const p of closedItems) {
+    if (p.openedAt == null || p.daysHeld == null || p.profitPerDay == null) continue;
+    if (!bestTrade || p.profitPerDay > bestTrade.profitPerDay) {
+      bestTrade = {
+        ticker: p.ticker,
+        optionType: p.optionType,
+        strike: p.strike,
+        expiry: p.expiry,
+        quantity: p.quantity,
+        profit: p.profit,
+        openedAt: p.openedAt,
+        closedAt: p.date,
+        daysHeld: p.daysHeld,
+        profitPerDay: p.profitPerDay,
+      };
+    }
+  }
+
   return {
     start,
     end,
@@ -156,6 +210,7 @@ export function buildPeriodActivity(
     openedCount: openedItems.length,
     closedItems,
     openedItems,
+    bestTrade,
   };
 }
 

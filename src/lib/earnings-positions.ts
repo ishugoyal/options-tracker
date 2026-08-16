@@ -70,6 +70,7 @@ export function buildEarningsPositions(
         quantity: chain.quantity,
         profit,
         closedAt: chain.closedAt,
+        openedAt: chain.startedAt,
       });
     }
     // Open chain: intermediate legs already marked used → excluded from earnings.
