@@ -102,6 +102,7 @@ export default async function HomePage() {
     fees: t.fees,
   }));
 
+  const yearActivity = buildPeriodActivity(chainEarningsAll, dashboardTrades, yearStart, asOf);
   const last7 = buildPeriodActivity(chainEarningsAll, dashboardTrades, range7.start, range7.end);
   const last30 = buildPeriodActivity(chainEarningsAll, dashboardTrades, range30.start, range30.end);
   const last60 = buildPeriodActivity(chainEarningsAll, dashboardTrades, range60.start, range60.end);
@@ -117,6 +118,7 @@ export default async function HomePage() {
         chainPlAfterFees={chainPlAfterFees}
         positionsTraded={chainEarningsYear.length}
         year={thisYear}
+        bestTrade={yearActivity.bestTrade}
       />
 
       <Last7DaysStrip
