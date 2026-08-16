@@ -23,12 +23,11 @@ function contractLine(p: {
   optionType: string;
   strike: number;
   expiry: string;
-  quantity: number;
 }): string {
-  return `${p.ticker} ${p.optionType.toUpperCase()} $${p.strike} · ${p.expiry} ×${p.quantity}`;
+  return `${p.ticker} ${p.optionType.toUpperCase()} $${p.strike} · ${p.expiry}`;
 }
 
-type PeriodKey = "7d" | "30d";
+type PeriodKey = "7d" | "30d" | "60d";
 
 type Props = {
   periods: Record<PeriodKey, PeriodActivity>;
@@ -37,6 +36,7 @@ type Props = {
 const LABELS: Record<PeriodKey, string> = {
   "7d": "Last 7 days",
   "30d": "Last 30 days",
+  "60d": "Last 60 days",
 };
 
 export function Last7DaysStrip({ periods }: Props) {
@@ -66,7 +66,7 @@ export function Last7DaysStrip({ periods }: Props) {
           </p>
         </div>
         <div className="flex rounded-lg border border-slate-600 bg-slate-900/50 p-0.5 text-sm">
-          {(["7d", "30d"] as const).map((key) => (
+          {(["7d", "30d", "60d"] as const).map((key) => (
             <button
               key={key}
               type="button"
@@ -106,15 +106,14 @@ export function Last7DaysStrip({ periods }: Props) {
             <>
               <p
                 className={`text-2xl font-bold ${
-                  bestTrade.profitPerDay >= 0 ? "text-green-400" : "text-red-400"
+                  bestTrade.profit >= 0 ? "text-green-400" : "text-red-400"
                 }`}
               >
-                {fmtMoney(bestTrade.profitPerDay)}
-                <span className="text-base font-medium text-slate-400">/day</span>
+                {fmtMoney(bestTrade.profit)}
               </p>
               <p className="mt-1 text-xs text-slate-300">{contractLine(bestTrade)}</p>
               <p className="text-xs text-slate-500">
-                {fmtMoney(bestTrade.profit)} over {bestTrade.daysHeld} day
+                {fmtMoney(bestTrade.profitPerDay)}/day · {bestTrade.daysHeld} day
                 {bestTrade.daysHeld !== 1 ? "s" : ""} · {fmtShortDate(bestTrade.openedAt)} →{" "}
                 {fmtShortDate(bestTrade.closedAt)}
               </p>
